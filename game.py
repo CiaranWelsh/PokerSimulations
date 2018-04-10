@@ -89,9 +89,11 @@ class Card(object):
         """
         return self.rank_order[self.rank]
 
+
 class Deck(object):
     def __init__(self):
         self.cards = self.create()
+        self.shuffle()
 
     def __str__(self):
         return str(self.cards)
@@ -137,7 +139,7 @@ class Deck(object):
                 return i
 
 
-class Hand(object):
+class Table(object):
     def __init__(self, num=6):
         self.num = num
 
@@ -192,19 +194,21 @@ class Hand(object):
     def river(self):
         return self.deck.pop()
 
+    def best_cards(self):
+        """
+        get the player with the best cards
+        and the cards
+        :return:
+        """
+        results = OrderedDict()
+        for i in self.hole_cards:
+            all7 = self.hole_cards[i] + self.flop + [self.river] + [self.turn]
+            results[i] = Hand(all7).eval()
 
-class Table(object):
-    def __init__(self, num):
-        self.num = num
+        winner_dct = {i: results[i] for i in results if results[i] == max(results.values())}
+        return winner_dct, results
 
-    def deal(self):
-        return Hand(self.num)
-
-    def evaluate_hand(self):
-        pass
-
-
-class HandRank(object):
+class Hand(object):
     def __init__(self, cards):
         ## sort in decending order
         self.cards = list(reversed(sorted(cards)))
@@ -218,7 +222,10 @@ class HandRank(object):
         self.five_best = self.get_five_best()
 
     def __str__(self):
-        return str(self.cards)
+        return str("{}({})".format(self.__class__.__name__, self.cards))
+
+    def __repr__(self):
+        return self.__str__()
 
     def __eq__(self, other):
         """Overrides the default implementation"""
@@ -238,41 +245,78 @@ class HandRank(object):
         return hash(tuple(sorted(self.__dict__.items())))
 
     def __lt__(self, other):
-        if not isinstance(other, Card):
-            raise TypeError('Cannot make comparison between Card and "{}"'.format(type(other)))
-        return self.rank_order[self.rank] < self.rank_order[other.rank]
+        if not isinstance(other, Hand):
+            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
+        if self.internal_rank == other.internal_rank:
+            self_sum = sum([i.internal_rank for i in self.five_best])
+            other_sum = sum([i.internal_rank for i in other.five_best])
+            return self_sum < other_sum
+
+        ## otherwise compare the internal ranks
+        else:
+            return self.internal_rank < other.internal_rank
 
     def __le__(self, other):
-        if not isinstance(other, Card):
-            raise TypeError('Cannot make comparison between Card and "{}"'.format(type(other)))
-        return self.rank_order[self.rank] <= self.rank_order[other.rank]
+        if not isinstance(other, Hand):
+            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
+        if self.internal_rank == other.internal_rank:
+            self_sum = sum([i.internal_rank for i in self.five_best])
+            other_sum = sum([i.internal_rank for i in other.five_best])
+            return self_sum <= other_sum
+
+        ## otherwise compare the internal ranks
+        else:
+            return self.internal_rank <= other.internal_rank
 
     def __gt__(self, other):
-        if not isinstance(other, Card):
-            raise TypeError('Cannot make comparison between Card and "{}"'.format(type(other)))
-        return self.rank_order[self.rank] > self.rank_order[other.rank]
+        if not isinstance(other, Hand):
+            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
 
+        if self.internal_rank == other.internal_rank:
+            self_sum = sum([i.internal_rank for i in self.five_best])
+            other_sum = sum([i.internal_rank for i in other.five_best])
+            return self_sum > other_sum
 
+        ## otherwise compare the internal ranks
+        else:
+            return self.internal_rank > other.internal_rank
 
-    def hand_rank_order(self):
+    def __ge__(self, other):
+        if not isinstance(other, Hand):
+            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
+
+        if self.internal_rank == other.internal_rank:
+            self_sum = sum([i.internal_rank for i in self.five_best])
+            other_sum = sum([i.internal_rank for i in other.five_best])
+            return self_sum <= other_sum
+
+        ## otherwise compare the internal ranks
+        else:
+            return self.internal_rank <= other.internal_rank
+
+    @staticmethod
+    def hand_rank_order():
         d = OrderedDict()
         hand_order = [
-            'high_card',
-            'pair',
-            'two_pair',
-            'three_of_a_kind',
-            'straight',
-            'flush',
-            'full_house',
-            'four_of_a_kind',
-            'straight_flush',
-            'royal_flush'
-            ]
+            'HighCard',
+            'Pair',
+            'TwoPair',
+            'ThreeOfAKind',
+            'Straight',
+            'Flush',
+            'FullHouse',
+            'FourOfAKind',
+            'StraightFlush',
+            'RoyalFlush'
+        ]
         for i in range(len(hand_order)):
-            d[i] = hand_order[i]
+            d[hand_order[i]] = i
 
         return d
 
+    @property
+    def internal_rank(self):
+        return self.hand_rank_order()[self.__class__.__name__]
 
     def get_five_best(self):
         """
@@ -282,22 +326,45 @@ class HandRank(object):
         """
         pass
 
+    def eval(self):
+        """
+        return the maximum hand
+        :return:
+        """
+        isa_list = []
+        for hand in Hand.__subclasses__():
+            hand_type = hand(self.cards)
+            if hand_type.isa:
+                isa_list.append(hand_type)
 
-class RoyalFlush(HandRank):
+        max_isalist = max(isa_list)
+
+        return max_isalist
+
+    def max(self, lst):
+        if not isinstance(lst, list):
+            raise TypeError('lst argument should be list')
+        max = lst[0]
+        for i in lst:
+            if i > max:
+                max = i
+        return max
+
+
+class RoyalFlush(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
-        LOG.debug('input cards --> {}'.format(cards))
-
         SF = StraightFlush(cards)
-        ranks = [i.rank for i in SF.five_best]
-        if SF.isa and ranks == ['A', 'K', 'Q', 'J', 10]:
-            self.isa = True
-            return cards
+        if SF.isa:
+            ranks = [i.rank for i in SF.five_best]
+            if ranks == ['A', 'K', 'Q', 'J', 10]:
+                self.isa = True
+                return cards
         else:
             return HighCard(cards)
 
 
-class StraightFlush(HandRank):
+class StraightFlush(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
         S = Straight(cards)
@@ -313,7 +380,7 @@ class StraightFlush(HandRank):
             return HighCard(cards)
 
 
-class FourOfAKind(HandRank):
+class FourOfAKind(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
 
@@ -340,7 +407,7 @@ class FourOfAKind(HandRank):
             return HighCard(cards)
 
 
-class FullHouse(HandRank):
+class FullHouse(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
         ## get most common card
@@ -362,7 +429,7 @@ class FullHouse(HandRank):
             return HighCard(cards)
 
 
-class Flush(HandRank):
+class Flush(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
         cards = list(reversed(sorted(cards)))
@@ -385,7 +452,7 @@ class Flush(HandRank):
             return HighCard(self.cards)
 
 
-class Straight(HandRank):
+class Straight(Hand):
     def get_five_best(self):
         cards = sorted(deepcopy(self.cards))
         internal_ranks = [i.internal_rank for i in cards]
@@ -414,7 +481,7 @@ class Straight(HandRank):
             return list(reversed(sorted(best_five)))
 
 
-class ThreeOfAKind(HandRank):
+class ThreeOfAKind(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
 
@@ -440,7 +507,7 @@ class ThreeOfAKind(HandRank):
         else:
             return HighCard(cards)
 
-class TwoPair(HandRank):
+class TwoPair(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
 
@@ -467,7 +534,7 @@ class TwoPair(HandRank):
             return HighCard(cards)
 
 
-class Pair(HandRank):
+class Pair(Hand):
     def get_five_best(self):
         ## make copy so we don't loose original
         cards = deque(deepcopy(self.cards))
@@ -502,7 +569,7 @@ class Pair(HandRank):
             return HighCard(cards).five_best
 
 
-class HighCard(HandRank):
+class HighCard(Hand):
     def get_five_best(self):
         self.isa = True
         return self.cards[:5]

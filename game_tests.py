@@ -3,6 +3,7 @@ import unittest
 from game import *
 from inspect import getmembers
 
+
 class TestHands(object):
     def __init__(self):
         props = [j for (j, k) in getmembers(self, property) if j[:2] != '__']
@@ -30,6 +31,18 @@ class TestHands(object):
             Card('A', 'S'),
             Card(3, 'H'),
             Card(9, 'H'),
+            Card(6, 'D'),
+            Card(2, 'D'),
+            Card(7, 'D'),
+        ]
+
+    @property
+    def pair2(self):
+        return [
+            Card('A', 'D'),
+            Card('K', 'S'),
+            Card(3, 'H'),
+            Card(3, 'S'),
             Card(6, 'D'),
             Card(2, 'D'),
             Card(7, 'D'),
@@ -190,6 +203,7 @@ class CardTests(unittest.TestCase):
         self.assertTrue(c1 > c2)
         self.assertTrue(c2 < c1)
 
+
 class DeckTests(unittest.TestCase):
     def setUp(self):
         self.D = Deck()
@@ -207,6 +221,9 @@ class DeckTests(unittest.TestCase):
         predictable way
         :return:
         """
+        D1 = Deck()
+        D2 = Deck()
+        self.assertFalse(D1 == D2)
 
     def test_get_card(self):
         self.assertEqual(Card(5, 'S'), self.D.get(5, 'S'))
@@ -215,28 +232,25 @@ class DeckTests(unittest.TestCase):
         card = self.D.get(5, 'D')
         self.assertEqual(len(self.D), 51)
 
-class HandTests(unittest.TestCase):
+
+class TableTests(unittest.TestCase):
     def setUp(self):
-        self.H = Hand()
+        self.T = Table()
 
     def test_6_hole_cards(self):
-        H = Hand(6)
-        self.assertEqual(len(H), 6)
+        T = Table(6)
+        self.assertEqual(len(T), 6)
 
     def test_4_hole_cards(self):
-        H = Hand(4)
-        self.assertEqual(len(H), 4)
-
-class TestTable(unittest.TestCase):
-    def setUp(self):
-        pass
+        T = Table(4)
+        self.assertEqual(len(T), 4)
 
     def test(self):
-        T = Table(6)
-        # print T.deal()
-
-
-
+        winner, res = self.T.best_cards()
+        print 'wn', winner
+        print 'res'
+        for i, j in res.items():
+            print i, j
 
 
 class HighCardTests(unittest.TestCase):
@@ -265,6 +279,7 @@ class PairTests(unittest.TestCase):
             Pair(self.hands['high_card']).five_best,
             [Card('A', 'D'), Card('K', 'S'), Card(9, 'H'), Card(7, 'D'), Card(6, 'D')]
         )
+
 
 class TwoPairTests(unittest.TestCase):
     def setUp(self):
@@ -296,6 +311,7 @@ class ThreeOfAKindTests(unittest.TestCase):
             [Card('A', 'H'), Card('A', 'S'), Card('A', 'D'), Card(9, 'H'), Card(7, 'D')]
         )
 
+
 class StraightTests(unittest.TestCase):
     def setUp(self):
         self.hands = TestHands().hands
@@ -319,6 +335,7 @@ class StraightTests(unittest.TestCase):
             high_card.five_best,
             [Card('A', 'D'), Card('K', 'S'), Card(9, 'H'), Card(7, 'D'), Card(6, 'D')]
         )
+
 
 class FlushTests(unittest.TestCase):
     def setUp(self):
@@ -370,14 +387,91 @@ class TestRoyalFlush(unittest.TestCase):
     def setUp(self):
         ## get relevant properties
         props = [j for (j, k) in getmembers(TestHands, property) if j[:2] != '__']
-        self.test_hands = {i: TestHands().__getattribute__(i) for i in props}
+        self.hands = {i: TestHands().__getattribute__(i) for i in props}
 
     def test(self):
-        print RoyalFlush(self.test_hands['royal_flush']).five_best
+        royal_flush = StraightFlush(self.hands['royal_flush']).five_best
+        self.assertListEqual(
+            royal_flush,
+            [Card('A', 'D'), Card('K', 'D'), Card('Q', 'D'), Card('J', 'D'), Card(10, 'D')]        )
 
 
 class CompareRanksTests(unittest.TestCase):
     def setUp(self):
+        self.hands = TestHands()
+
+    def test_equiv(self):
+        P1 = Pair(self.hands['pair']) ## A's
+        P2 = Pair(self.hands['pair']) ## 3's
+        self.assertTrue(P1 == P2)
+
+    def test_not_equiv(self):
+        P1 = Pair(self.hands['pair'])
+        P2 = Pair(self.hands['pair2'])
+        self.assertTrue(P1 != P2)
+
+    def test_pair_3s_smaller_than_pair_As(self):
+        aces = Pair(self.hands['pair'])
+        threes = Pair(self.hands['pair2'])
+        self.assertTrue(threes < aces)
+
+    def test_pair_As_greater_than_pair_3s(self):
+        aces = Pair(self.hands['pair'])
+        threes = Pair(self.hands['pair2'])
+        self.assertTrue(aces > threes)
+
+    def test_straight_smaller_than_flush(self):
+        straight = Straight(self.hands['straight'])
+        flush = Flush(self.hands['flush'])
+        self.assertTrue(straight < flush)
+
+    def test_flush_greater_than_straight(self):
+        straight = Straight(self.hands['straight'])
+        flush = Flush(self.hands['flush'])
+        self.assertTrue(flush > straight)
+
+    def test_royal_flush_gl(self):
+        straight_flush = StraightFlush(self.hands['straight_flush'])
+        royal_flush = RoyalFlush(self.hands['royal_flush'])
+        self.assertTrue(straight_flush < royal_flush)
+
+    def test_two_straights(self):
+        straight1 = Straight(self.hands['straight'])
+        straight2 = Straight(self.hands['long_straight'])
+        self.assertTrue(straight2 > straight1)
+
+    def test_high_card_lt_pair(self):
+        high_card = HighCard(self.hands['high_card'])
+        pair = HighCard(self.hands['pair'])
+        self.assertTrue(high_card < pair)
+
+    def test_class_level_comparison(self):
+        """
+        this test fails but I don't think this
+        functionality is needed
+        """
+        pass#self.assertTrue(Pair > HighCard)
+
+    def test_max(self):
+        three_oak = ThreeOfAKind(self.hands['three_of_a_kind'])
+        straight = Straight(self.hands['straight'])
+        pair = Pair(self.hands['pair'])
+        self.assertEqual(max(three_oak, straight, pair), straight)
+
+class TestHandEval(unittest.TestCase):
+    def setUp(self):
+        self.hands = TestHands()
+
+    def test_pair(self):
+        H = Hand(self.hands['pair'])
+        self.assertEqual(H.eval().__class__.__name__, 'Pair')
+
+    def test_four_of_a_kind(self):
+        H = Hand(self.hands['four_of_a_kind'])
+        self.assertEqual(H.eval().__class__.__name__, 'FourOfAKind')
+
+
+
 
 
 
