@@ -9,7 +9,7 @@ logging.basicConfig(format=FORMAT)
 LOG = logging.getLogger(__name__)
 
 
-class Card(object):
+class Card:
     def __init__(self, rank, suit):
         self.rank = rank
         self.suit = suit
@@ -62,7 +62,7 @@ class Card(object):
         return self.rank_order[self.rank] >= self.rank_order[other.rank]
 
     def do_checks(self):
-        if self.rank not in ['A', 'K', 'Q', 'J'] + range(2, 11):
+        if self.rank not in ['A', 'K', 'Q', 'J'] + list(range(2, 11)):
             raise ValueError('"num" should be between A, K, Q, J or a number from 2 to 10. Got "{}"'.format(self.num))
 
         if self.suit not in ['H', 'D', 'S', 'C']:
@@ -90,7 +90,7 @@ class Card(object):
         return self.rank_order[self.rank]
 
 
-class Deck(object):
+class Deck:
     def __init__(self):
         self.cards = self.create()
         self.shuffle()
@@ -120,7 +120,7 @@ class Deck(object):
 
     def create(self):
         cards = deque()
-        for rank in ['A', 'K', 'Q', 'J'] + range(2, 11):
+        for rank in ['A', 'K', 'Q', 'J'] + list(range(2, 11)):
             for suit in ['H', 'C', 'S', 'D']:
                 cards.append(Card(rank, suit))
         return cards
@@ -139,80 +139,169 @@ class Deck(object):
                 return i
 
 
-class Table(object):
-    def __init__(self, num=6):
-        self.num = num
+class Player:
 
-    @property
-    def cards(self):
-        cards = deepcopy(self.hole_cards)
-        cards['flop'] = deepcopy(self.flop)
-        cards['turn'] = deepcopy(self.turn)
-        cards['river'] = deepcopy(self.river)
-        return cards
+    def __init__(self, name, cash, seat, position, currency='$'):
+        self.name = name
+        self.cash = cash
+        self.seat = seat
+        self.currency = currency
 
     def __str__(self):
-        string = ''
-        for i, j in self.hole_cards.items():
-            string = string + "{}: {}\n".format(i, j)
-        string = string + 'flop: ' + str(self.flop)+'\n'
-        string = string + 'turn: ' + str(self.turn)+'\n'
-        string = string + 'river: ' + str(self.river)+'\n'
-        return string
+        return f"Player({self.name}, {self.cash}{self.currency}, {self.seat})"
 
-    def __len__(self):
-        return len(self.hole_cards)
-
-    @property
-    def deck(self):
-        return Deck().shuffle()
-
-    @property
-    def hole_cards(self):
-        hole = OrderedDict()
-        ## card 1
-        for i in range(1, self.num+1):
-            hole[i] = [self.deck.pop()]
-
-        ## card 2
-        for i in range(1, self.num+1):
-            hole[i].append(self.deck.pop())
-        return hole
-
-    @property
-    def flop(self):
-        flop = []
-        for i in range(3):
-            flop.append(self.deck.pop())
-        return flop
-
-    @property
-    def turn(self):
-        return self.deck.pop()
-
-    @property
-    def river(self):
-        return self.deck.pop()
-
-    def best_cards(self):
+    def stats(self):
         """
-        get the player with the best cards
-        and the cards
-        :return:
+        Will eventually have a bunch of stats that I'll be able
+        to call up on the players.
+        Returns:
+
         """
-        results = OrderedDict()
-        for i in self.hole_cards:
-            all7 = self.hole_cards[i] + self.flop + [self.river] + [self.turn]
-            results[i] = Hand(all7).eval()
 
-        winner_dct = {i: results[i] for i in results if results[i] == max(results.values())}
-        return winner_dct, results
+class Position:
 
-class Dealer(object):
-    def __self__(self, num):
-        self.num = num
+    def __init__(self, name):
+        self.name = name
 
-class Hand(object):
+
+class Seat:
+
+    def __init__(self, position, player=None):
+        self.position = position
+        self.player = player
+
+    @property
+    def isempty(self):
+        if self.player:
+            return True
+        return False
+
+    def __str__(self):
+        return f'Seat(position="{self.position}", player={self.player})'
+
+    def __repr__(self):
+        return self.__str__()
+
+
+class Table:
+
+    positions = {
+        1: 'btn',
+        2: 'sb',
+        3: 'bb',
+        4: 'utg1',
+        5: 'utg2',
+        6: 'mp1',
+        7: 'mp2',
+        8: 'mp3',
+        9: 'co',
+    }
+
+    def __init__(self, name, players):
+        self.name = name
+        self.players = players
+
+        ## initialise seats
+        self.seats = {i: Seat(i) for i in self.positions.values()}
+        for k, v in self.positions.items():
+            setattr(self, v, self.seats[v])
+
+    def add_player(self, seat, player):
+        if not isinstance(seat, Seat):
+            raise ValueError(f"Expected a Seat object. Got a {type(seat)}")
+        if not isinstance(player, Player):
+            raise ValueError(f"Expected a Plauer object. Got a {type(player)}")
+        self.seats[seat.position].player = player
+
+    def seat_players(self):
+        if isinstance(self.players, Player):
+            self.players = [self.players]
+
+        if isinstance(self.players, list):
+            for i in self.players:
+                if not isinstance(i, Player):
+                    raise ValueError('Expected a Player object.')
+
+        for i in range(1, len(self.players)+1):
+            self.add_player(Seat(self.positions[i]), self.players[i-1])
+
+    def __str__(self):
+        return f'Table(name="{self.name}")'
+
+    # @property
+    # def cards(self):
+    #     cards = deepcopy(self.hole_cards)
+    #     cards['flop'] = deepcopy(self.flop)
+    #     cards['turn'] = deepcopy(self.turn)
+    #     cards['river'] = deepcopy(self.river)
+    #     return cards
+
+    # def __str__(self):
+    #     string = ''
+    #     for i, j in list(self.hole_cards.items()):
+    #         string = string + "{}: {}\n".format(i, j)
+    #     string = string + 'flop: ' + str(self.flop)+'\n'
+    #     string = string + 'turn: ' + str(self.turn)+'\n'
+    #     string = string + 'river: ' + str(self.river)+'\n'
+    #     return string
+
+    # def __len__(self):
+    #     return len(self.hole_cards)
+    #
+    # @property
+    # def deck(self):
+    #     return Deck().shuffle()
+    #
+    # @property
+    # def hole_cards(self):
+    #     hole = OrderedDict()
+    #     ## card 1
+    #     for i in range(1, self.num+1):
+    #         hole[i] = [self.deck.pop()]
+    #
+    #     ## card 2
+    #     for i in range(1, self.num+1):
+    #         hole[i].append(self.deck.pop())
+    #     return hole
+    #
+    # @property
+    # def flop(self):
+    #     flop = []
+    #     for i in range(3):
+    #         flop.append(self.deck.pop())
+    #     return flop
+    #
+    # @property
+    # def turn(self):
+    #     return self.deck.pop()
+    #
+    # @property
+    # def river(self):
+    #     return self.deck.pop()
+    #
+    # def best_cards(self):
+    #     """
+    #     get the player with the best cards
+    #     and the cards
+    #     :return:
+    #     """
+    #     results = OrderedDict()
+    #     for i in self.hole_cards:
+    #         all7 = self.hole_cards[i] + self.flop + [self.river] + [self.turn]
+    #         results[i] = Hand(all7).eval()
+    #
+    #     winner_dct = {i: results[i] for i in results if results[i] == max(results.values())}
+    #     return winner_dct, results
+
+
+class Game:
+
+    def __init__(self, id):
+        self.id = id
+
+
+
+class Hand:
     def __init__(self, cards):
         ## sort in decending order
         self.cards = list(reversed(sorted(cards)))
@@ -462,11 +551,11 @@ class Straight(Hand):
         internal_ranks = [i.internal_rank for i in cards]
         possible_straights = OrderedDict()
         for i in range(9):
-            possible_straights[i] = range(i, i+5)
+            possible_straights[i] = list(range(i, i+5))
         possible_straights[12] = [12, 0, 1, 2, 3]
 
         best_five = []
-        for k, v in possible_straights.items():
+        for k, v in list(possible_straights.items()):
             if set(v).issubset(set(internal_ranks)):
                 for card in cards:
                     for i in v:
