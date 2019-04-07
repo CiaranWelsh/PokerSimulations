@@ -101,5 +101,8 @@ ENV/
 .mypy_cache/
 
 ## data 
-data/
+data/*
 BulkHands-11473.zip
+
+
+.idea
