@@ -1,13 +1,27 @@
 import os, glob
 from collections import OrderedDict, Counter, deque
+from itertools import cycle
 from random import shuffle
 from copy import deepcopy
-import logging
+import logging, numpy
 
 FORMAT = "%(name)s: %(levelname)s: %(funcName)s: %(message)s"
 logging.basicConfig(format=FORMAT)
 LOG = logging.getLogger(__name__)
 
+POSITIONS = {
+    1: 'btn',
+    2: 'sb',
+    3: 'bb',
+    4: 'utg1',
+    5: 'utg2',
+    6: 'mp1',
+    7: 'mp2',
+    8: 'mp3',
+    9: 'co',
+}
+
+POSITIONS_INVERTED = {v: k for k, v in POSITIONS.items()}
 
 class Card:
     def __init__(self, rank, suit):
@@ -141,14 +155,20 @@ class Deck:
 
 class Player:
 
-    def __init__(self, name, cash, seat, position, currency='$'):
+    def __init__(self, name, cash, seat,
+                 position, cards=[], currency='$'):
         self.name = name
-        self.cash = cash
+        self.cash = round(cash, 2)
         self.seat = seat
+        self.position = position
+        self.cards = cards
         self.currency = currency
 
     def __str__(self):
-        return f"Player({self.name}, {self.cash}{self.currency}, {self.seat})"
+        return f"Player(\"{self.name}\", cash={self.cash}{self.currency}, seat={self.seat}, position=\"{self.position}\")"
+
+    def __repr__(self):
+        return self.__str__()
 
     def stats(self):
         """
@@ -158,10 +178,85 @@ class Player:
 
         """
 
-class Position:
+    def add_card(self, card):
+        if len(self.cards) > 2:
+            raise ValueError
+        self.cards.append(card)
 
-    def __init__(self, name):
-        self.name = name
+    def remove_cards(self):
+        self.cards = []
+
+    def __gt__(self, other):
+        if not isinstance(other, Player):
+            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
+
+        return POSITIONS_INVERTED[self.position] > POSITIONS_INVERTED[other.position]
+
+    def __lt__(self, other):
+        if not isinstance(other, Player):
+            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
+
+        return POSITIONS_INVERTED[self.position] < POSITIONS_INVERTED[other.position]
+
+    def __ge__(self, other):
+        if not isinstance(other, Player):
+            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
+        return POSITIONS_INVERTED[self.position] >= POSITIONS_INVERTED[other.position]
+
+    def __le__(self, other):
+        if not isinstance(other, Player):
+            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
+        return POSITIONS_INVERTED[self.position] <= POSITIONS_INVERTED[other.position]
+
+    def __eq__(self, other):
+        if not isinstance(other, Player):
+            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
+        return POSITIONS_INVERTED[self.position] == POSITIONS_INVERTED[other.position]
+
+    def __ne__(self, other):
+        if not isinstance(other, Player):
+            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
+        return POSITIONS_INVERTED[self.position] != POSITIONS_INVERTED[other.position]
+
+
+
+class Players(cycle):
+
+    def __init__(self, iterable):
+        super().__init__()
+        self.iterable = iterable
+        # self.iterable.sort()
+
+    def __str__(self):
+        return self.iterable.__str__()
+
+    def __getitem__(self, item):
+        assert isinstance(item, int)
+        if item == 0:
+            return self.iterable[item]
+        else:
+            return self.iterable[item-1]
+
+
+
+    def __len__(self):
+        return len(self.iterable)
+
+    @staticmethod
+    def get_default_players():
+        seats = numpy.linspace(1, 9, num=9)
+        positions = numpy.linspace(1, 9, num=9)
+
+        shuffle(seats)
+        shuffle(positions)
+        p = [Player(name='player{}'.format(i), cash=1.0,
+                    seat=seats[i], position=POSITIONS[positions[i]]) for i in range(1, 9)]
+        return p
+
+
+    # def __str__(self):
+
+
 
 
 class Seat:
@@ -170,9 +265,12 @@ class Seat:
         self.position = position
         self.player = player
 
+        if self.position not in POSITIONS.values():
+            raise ValueError
+
     @property
     def isempty(self):
-        if self.player:
+        if self.player is None:
             return True
         return False
 
@@ -185,26 +283,14 @@ class Seat:
 
 class Table:
 
-    positions = {
-        1: 'btn',
-        2: 'sb',
-        3: 'bb',
-        4: 'utg1',
-        5: 'utg2',
-        6: 'mp1',
-        7: 'mp2',
-        8: 'mp3',
-        9: 'co',
-    }
-
     def __init__(self, name, players):
         self.name = name
         self.players = players
 
         ## initialise seats
-        self.seats = {i: Seat(i) for i in self.positions.values()}
-        for k, v in self.positions.items():
-            setattr(self, v, self.seats[v])
+        self.seats = {k: Seat(position=POSITIONS[v]) for k, v in POSITIONS.items()}
+        # for k, v in POSITIONS.items():
+        #     setattr(self, v, self.seats[v])
 
     def add_player(self, seat, player):
         if not isinstance(seat, Seat):
@@ -222,83 +308,78 @@ class Table:
                 if not isinstance(i, Player):
                     raise ValueError('Expected a Player object.')
 
-        for i in range(1, len(self.players)+1):
-            self.add_player(Seat(self.positions[i]), self.players[i-1])
+        for i in range(1, len(self.players) + 1):
+            self.add_player(Seat(POSITIONS[i]), self.players[i - 1])
 
     def __str__(self):
         return f'Table(name="{self.name}")'
 
-    # @property
-    # def cards(self):
-    #     cards = deepcopy(self.hole_cards)
-    #     cards['flop'] = deepcopy(self.flop)
-    #     cards['turn'] = deepcopy(self.turn)
-    #     cards['river'] = deepcopy(self.river)
-    #     return cards
-
-    # def __str__(self):
-    #     string = ''
-    #     for i, j in list(self.hole_cards.items()):
-    #         string = string + "{}: {}\n".format(i, j)
-    #     string = string + 'flop: ' + str(self.flop)+'\n'
-    #     string = string + 'turn: ' + str(self.turn)+'\n'
-    #     string = string + 'river: ' + str(self.river)+'\n'
-    #     return string
-
-    # def __len__(self):
-    #     return len(self.hole_cards)
-    #
-    # @property
-    # def deck(self):
-    #     return Deck().shuffle()
-    #
-    # @property
-    # def hole_cards(self):
-    #     hole = OrderedDict()
-    #     ## card 1
-    #     for i in range(1, self.num+1):
-    #         hole[i] = [self.deck.pop()]
-    #
-    #     ## card 2
-    #     for i in range(1, self.num+1):
-    #         hole[i].append(self.deck.pop())
-    #     return hole
-    #
-    # @property
-    # def flop(self):
-    #     flop = []
-    #     for i in range(3):
-    #         flop.append(self.deck.pop())
-    #     return flop
-    #
-    # @property
-    # def turn(self):
-    #     return self.deck.pop()
-    #
-    # @property
-    # def river(self):
-    #     return self.deck.pop()
-    #
-    # def best_cards(self):
-    #     """
-    #     get the player with the best cards
-    #     and the cards
-    #     :return:
-    #     """
-    #     results = OrderedDict()
-    #     for i in self.hole_cards:
-    #         all7 = self.hole_cards[i] + self.flop + [self.river] + [self.turn]
-    #         results[i] = Hand(all7).eval()
-    #
-    #     winner_dct = {i: results[i] for i in results if results[i] == max(results.values())}
-    #     return winner_dct, results
-
 
 class Game:
 
-    def __init__(self, id):
+    def __init__(self, id, players):
         self.id = id
+        self.players = players
 
+    def positions(self):
+        seats = OrderedDict()
+        for p in self.players:
+            seats[p.position] = p.name
+        return seats
+
+    def deal(self):
+        # hole cards
+        for i in [0, 1]:
+            for p in self.players:
+                print(p)
+                # p.add_card(self.deck.pop())
+    #
+    #     print(self.players)
+
+    @property
+    def deck(self):
+        return Deck().shuffle()
+
+    @property
+    def hole_cards(self):
+        hole = OrderedDict()
+        ## card 1
+        for i in range(1, self.num + 1):
+            hole[i] = [self.deck.pop()]
+
+        ## card 2
+        for i in range(1, self.num + 1):
+            hole[i].append(self.deck.pop())
+        return hole
+
+    @property
+    def flop(self):
+        flop = []
+        for i in range(3):
+            flop.append(self.deck.pop())
+        return flop
+
+    @property
+    def turn(self):
+        return self.deck.pop()
+
+    @property
+    def river(self):
+        return self.deck.pop()
+
+    def best_cards(self):
+        """
+        get the player with the best cards
+        and the cards
+        :return:
+        """
+        results = OrderedDict()
+        for i in self.hole_cards:
+            all7 = self.hole_cards[i] + self.flop + [self.river] + [self.turn]
+            results[i] = Hand(all7).eval()
+
+        winner_dct = {i: results[i] for i in results if results[i] == max(results.values())}
+        return winner_dct, results
 
 
 class Hand:
@@ -551,7 +632,7 @@ class Straight(Hand):
         internal_ranks = [i.internal_rank for i in cards]
         possible_straights = OrderedDict()
         for i in range(9):
-            possible_straights[i] = list(range(i, i+5))
+            possible_straights[i] = list(range(i, i + 5))
         possible_straights[12] = [12, 0, 1, 2, 3]
 
         best_five = []
@@ -599,6 +680,7 @@ class ThreeOfAKind(Hand):
             return five_best
         else:
             return HighCard(cards)
+
 
 class TwoPair(Hand):
     def get_five_best(self):
@@ -666,33 +748,3 @@ class HighCard(Hand):
     def get_five_best(self):
         self.isa = True
         return self.cards[:5]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

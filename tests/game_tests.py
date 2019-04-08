@@ -98,15 +98,74 @@ class TableTests(unittest.TestCase):
     def test_seat_players(self):
         t = Table(name='super_poker', players=self.p)
         t.seat_players()
+        for s in t.seats.values():
+            self.assertFalse(s.isempty)
 
 
 class PlayerTests(unittest.TestCase):
     def setUp(self):
-        pass
+        self.p = [Player(name='player{}'.format(i), cash=1.0,
+                         seat=i, position=self.positions[i]) for i in range(1, 10)]
 
     def test_player(self):
         p = Player('Ciaran', 50, 1, 'BTN')
         self.assertIsInstance(p, Player)
+
+class PlayersTest(unittest.TestCase):
+    def setUp(self):
+        import numpy
+        seats = numpy.linspace(1, 9, num=9)
+        positions = numpy.linspace(1, 9, num=9)
+
+        shuffle(seats)
+        # shuffle(positions)
+        p = [Player(name='player{}'.format(i), cash=1.0,
+                            seat=seats[i], position=POSITIONS[positions[i]]) for i in range(0, 9)]
+        self.p = p
+
+    def test_players_ordered(self):
+        p = Players(self.p)
+        self.assertGreater(p[7], p[6])
+
+    def test_position1(self):
+        p = Players(self.p)
+        self.assertEqual(p[0].position, 'btn')
+
+    def test_position4(self):
+        p = Players(self.p)
+        print(p)
+        self.assertEqual(p[4].position, 'utg1')
+
+    def test_position9(self):
+        p = Players(self.p)
+        self.assertEqual(p[9].position, 'co')
+
+    def test_len(self):
+        p = Players(self.p)
+        self.assertEqual(len(p), 9)
+
+
+class GameTests(unittest.TestCase):
+    positions = {
+        1: 'btn',
+        2: 'sb',
+        3: 'bb',
+        4: 'utg1',
+        5: 'utg2',
+        6: 'mp1',
+        7: 'mp2',
+        8: 'mp3',
+        9: 'co',
+    }
+
+    def setUp(self):
+        self.p = [Player(name='player{}'.format(i), cash=1.0,
+                         seat=i, position=self.positions[i]) for i in range(1, 10)]
+
+    def test_positions(self):
+        g = Game(1, self.p)
+        pos = g.positions()
+        self.assertIsInstance(pos, dict)
 
 
 if __name__ == '__main__':
