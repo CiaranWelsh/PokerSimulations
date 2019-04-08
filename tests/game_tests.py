@@ -63,9 +63,15 @@ class DeckTests(unittest.TestCase):
         card = self.D.get(5, 'D')
         self.assertEqual(len(self.D), 51)
 
+    def test_pop(self):
+        d = Deck()
+        len_before = len(d)
+        d.pop()
+        len_after = len(d)
+        self.assertNotEqual(len_before, len_after)
+
 
 class TableTests(unittest.TestCase):
-
     positions = {
         1: 'btn',
         2: 'sb',
@@ -89,7 +95,11 @@ class TableTests(unittest.TestCase):
     def test_seats_init(self):
         t = Table(name='super_poker', players=self.p)
         for s in t.seats.values():
-            self.assertFalse(s.isempty)
+            self.assertTrue(s.isempty)
+
+    def test_utg1(self):
+        t = Table(name='poe', players=self.p)
+        self.assertTrue(t.utg1)
 
     def test_btn(self):
         t = Table(name='poe', players=self.p)
@@ -101,27 +111,36 @@ class TableTests(unittest.TestCase):
         for s in t.seats.values():
             self.assertFalse(s.isempty)
 
+    def test(self):
+        t = Table(name='super_poker', players=self.p)
+        print(t.play_game())
+
+    def test_blinds(self):
+        t = Table(name='super_poker', players=self.p)
+
 
 class PlayerTests(unittest.TestCase):
     def setUp(self):
         self.p = [Player(name='player{}'.format(i), cash=1.0,
-                         seat=i, position=self.positions[i]) for i in range(1, 10)]
+                         seat=i, position=POSITIONS[i]) for i in range(1, 10)]
 
     def test_player(self):
         p = Player('Ciaran', 50, 1, 'BTN')
         self.assertIsInstance(p, Player)
 
+
 class PlayersTest(unittest.TestCase):
     def setUp(self):
         import numpy
         seats = numpy.linspace(1, 9, num=9)
-        positions = numpy.linspace(1, 9, num=9)
-
         shuffle(seats)
         # shuffle(positions)
-        p = [Player(name='player{}'.format(i), cash=1.0,
-                            seat=seats[i], position=POSITIONS[positions[i]]) for i in range(0, 9)]
+        p = {}
+        for i, pos in POSITIONS.items():
+            p[pos] = Player(name='player'+str(i), position=pos, cash=1.0, seat=seats[i-1])
         self.p = p
+
+        assert self.p['btn'] != self.p['co']
 
     def test_players_ordered(self):
         p = Players(self.p)
@@ -129,7 +148,7 @@ class PlayersTest(unittest.TestCase):
 
     def test_position1(self):
         p = Players(self.p)
-        self.assertEqual(p[0].position, 'btn')
+        self.assertEqual(p[1].position, 'btn')
 
     def test_position4(self):
         p = Players(self.p)
@@ -143,6 +162,18 @@ class PlayersTest(unittest.TestCase):
     def test_len(self):
         p = Players(self.p)
         self.assertEqual(len(p), 9)
+
+    def test_iterable_is_dct(self):
+        p = Players(self.p)
+        self.assertEqual(p['btn'].name, 'player1')
+
+    def test_iter(self):
+        p = Players(self.p)
+
+        l = []
+        for i in p:
+            l.append(i)
+        self.assertListEqual(['btn', 'sb', 'bb', 'utg1', 'utg2', 'mp1', 'mp2', 'mp3', 'co'], l)
 
 
 class GameTests(unittest.TestCase):
@@ -166,6 +197,22 @@ class GameTests(unittest.TestCase):
         g = Game(1, self.p)
         pos = g.positions()
         self.assertIsInstance(pos, dict)
+
+    def test_blinds(self):
+        g = Game(1, self.p)
+        g.blinds()
+        self.assertAlmostEqual(0.15, g.pot)
+
+    def test_deal(self):
+        """
+        The only explaination is that these players are the same object!
+        :return:
+        """
+        g = Game(1, self.p)
+        g.deal()
+        for p in g.players:
+            print(p)
+        # print(g.players['btn'].cards)
 
 
 if __name__ == '__main__':

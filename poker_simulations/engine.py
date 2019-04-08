@@ -23,6 +23,7 @@ POSITIONS = {
 
 POSITIONS_INVERTED = {v: k for k, v in POSITIONS.items()}
 
+
 class Card:
     def __init__(self, rank, suit):
         self.rank = rank
@@ -144,7 +145,8 @@ class Deck:
         return self.cards
 
     def pop(self):
-        return self.cards.pop()
+        card = self.cards.pop()
+        return deepcopy(card)
 
     def get(self, rank, suit):
         for i in self.cards:
@@ -170,6 +172,10 @@ class Player:
     def __repr__(self):
         return self.__str__()
 
+    def bet(self, amount):
+        self.cash -= amount
+        return amount
+
     def stats(self):
         """
         Will eventually have a bunch of stats that I'll be able
@@ -178,9 +184,11 @@ class Player:
 
         """
 
-    def add_card(self, card):
+    def give_card(self, card):
         if len(self.cards) > 2:
-            raise ValueError
+            raise ValueError(f'A person can hold a maximum of two cards. '
+                             f'Player "{self.name}" has "{len(self.cards)}" '
+                             f'({self.cards})')
         self.cards.append(card)
 
     def remove_cards(self):
@@ -219,28 +227,42 @@ class Player:
         return POSITIONS_INVERTED[self.position] != POSITIONS_INVERTED[other.position]
 
 
-
-class Players(cycle):
+class Players:
 
     def __init__(self, iterable):
-        super().__init__()
+        self.num_players = len(iterable)
+
+        if isinstance(iterable, list):
+            iterable = {position: player for position, player in zip(
+                list(POSITIONS.values())[:self.num_players], iterable)}
+
+        if isinstance(iterable, dict):
+            for k in iterable:
+                if k not in POSITIONS.values():
+                    raise ValueError(f'"{k}" is not a valid key for "Players".'
+                                     f' These are valid: {POSITIONS.values()}')
+
         self.iterable = iterable
-        # self.iterable.sort()
 
     def __str__(self):
         return self.iterable.__str__()
 
     def __getitem__(self, item):
-        assert isinstance(item, int)
         if item == 0:
-            return self.iterable[item]
-        else:
-            return self.iterable[item-1]
-
-
+            raise ValueError('cannot get item "0" as indexing starts at 1')
+        if isinstance(item, int):
+            item = POSITIONS[item]
+        assert isinstance(item, str)
+        return self.iterable[item]
 
     def __len__(self):
         return len(self.iterable)
+
+    def __iter__(self):
+        return self.iterable.__iter__()
+
+    def __next__(self):
+        return self.iterable.__next__()
 
     @staticmethod
     def get_default_players():
@@ -252,11 +274,6 @@ class Players(cycle):
         p = [Player(name='player{}'.format(i), cash=1.0,
                     seat=seats[i], position=POSITIONS[positions[i]]) for i in range(1, 9)]
         return p
-
-
-    # def __str__(self):
-
-
 
 
 class Seat:
@@ -283,62 +300,98 @@ class Seat:
 
 class Table:
 
-    def __init__(self, name, players):
+    def __init__(self, name, players, steaks=(0.05, 0.10)):
         self.name = name
         self.players = players
+        self._game_id = 0
+        self.steaks = steaks
+
+        self.pot = 0
 
         ## initialise seats
-        self.seats = {k: Seat(position=POSITIONS[v]) for k, v in POSITIONS.items()}
-        # for k, v in POSITIONS.items():
-        #     setattr(self, v, self.seats[v])
+        self.seats = {k: Seat(position=v) for k, v in POSITIONS.items()}
+        for k, v in POSITIONS.items():
+            setattr(self, v, self.seats[k])
 
-    def add_player(self, seat, player):
-        if not isinstance(seat, Seat):
-            raise ValueError(f"Expected a Seat object. Got a {type(seat)}")
-        if not isinstance(player, Player):
-            raise ValueError(f"Expected a Plauer object. Got a {type(player)}")
-        self.seats[seat.position].player = player
+    @property
+    def game_id(self):
+        return self._game_id
 
-    def seat_players(self):
-        if isinstance(self.players, Player):
-            self.players = [self.players]
+    @game_id.setter
+    def game_id(self, id):
+        if not isinstance(id, int):
+            raise ValueError
+        self._game_id = id
 
-        if isinstance(self.players, list):
-            for i in self.players:
-                if not isinstance(i, Player):
-                    raise ValueError('Expected a Player object.')
-
-        for i in range(1, len(self.players) + 1):
-            self.add_player(Seat(POSITIONS[i]), self.players[i - 1])
+    # def add_player(self, player):
+    #     if not isinstance(player, Player):
+    #         raise ValueError(f"Expected a Plauer object. Got a {type(player)}")
+    #     self.seats[player.seat].player = player
+    #
+    # def seat_players(self):
+    #     if isinstance(self.players, Player):
+    #         self.players = [self.players]
+    #
+    #     if isinstance(self.players, list):
+    #         for i in self.players:
+    #             if not isinstance(i, Player):
+    #                 raise ValueError('Expected a Player object.')
+    #
+    #     for i in range(1, len(self.players) + 1):
+    #         self.add_player(self.players[i - 1])
 
     def __str__(self):
         return f'Table(name="{self.name}")'
 
+    # def play_game(self, game=None):
+    #     self.game_id += 1
+    #     g = Game(self.game_id, self.players)
+    #     g.blinds()
+        # g.deal()
+        # g.preflop()
+        # g.flop()
+        # g.flop_bet()
+        # g.turn()
+        # g.turn_bet()
+        # g.river()
+        # g.river_bet()
+
 
 class Game:
 
-    def __init__(self, id, players):
+    def __init__(self, id, players, steaks=(0.05, 0.10)):
         self.id = id
+        self.pot = 0
+
+        if not isinstance(players, Players):
+            players = Players(players)
+
         self.players = players
+        self.steaks = steaks
+
+        self.deck = Deck().shuffle()
 
     def positions(self):
         seats = OrderedDict()
         for p in self.players:
-            seats[p.position] = p.name
+            seats[p] = self.players[p].name
         return seats
+
+    def blinds(self):
+        self.pot += self.players['sb'].bet(self.steaks[0])
+        self.pot += self.players['bb'].bet(self.steaks[1])
 
     def deal(self):
         # hole cards
-        for i in [0, 1]:
-            for p in self.players:
-                print(p)
-                # p.add_card(self.deck.pop())
-    #
-    #     print(self.players)
+        for pos in POSITIONS.values():
+            card = deepcopy(self.deck.pop())
+            player = self.players[pos]
+            player.cards.append(card)
+            # print(pos, card)
 
-    @property
-    def deck(self):
-        return Deck().shuffle()
+        for pos in POSITIONS.values():
+            card = self.deck.pop()
+            self.players[pos].cards.append(card)
 
     @property
     def hole_cards(self):
