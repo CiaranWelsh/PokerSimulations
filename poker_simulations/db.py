@@ -11,6 +11,7 @@ FILE_MANAGER = file_manager.FileManager()
 
 
 class Zipper:
+
     @staticmethod
     def get_zip_files(directory):
         return glob.glob(os.path.join(directory, '*.zip'))

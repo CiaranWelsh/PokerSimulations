@@ -13,9 +13,11 @@ class ZipperTests(unittest.TestCase):
         self.files = glob.glob(os.path.join(d, '*.txt'))
 
     def test(self):
-        e = HandParser(FILE_MANAGER.MICRO_STAKES_DIR)
-        hands = e.read_file(self.files[0])
-        e.parse_hand(hands[0])
+        for f in self.files:
+            z = Zipper().extract()
+        print(z)
+        # hands = e.read_file(self.files[0])
+        # e.parse_hand(hands[0])
 
 
 class HandParserTests(unittest.TestCase):
