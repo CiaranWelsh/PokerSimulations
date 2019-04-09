@@ -113,16 +113,64 @@ class TableTests(unittest.TestCase):
 
     def test(self):
         t = Table(name='super_poker', players=self.p)
-        print(t.play_game())
 
     def test_blinds(self):
         t = Table(name='super_poker', players=self.p)
 
 
+    def test_rotate(self):
+        t = Table(name='super_poker', players=self.p)
+        t.seat_players()
+        t.rotate()
+        self.assertEqual('sb', t.seats[0].position)
+
+    def test_rotate2(self):
+        t = Table(name='super_poker', players=self.p)
+        t.seat_players()
+        t.rotate()
+        self.assertEqual('sb', t.seats[0].player.position)
+
+    def test_rotate2(self):
+        t = Table(name='super_poker', players=self.p)
+        t.seat_players()
+        # t.bet()
+        self.assertEqual('sb', t.seats[0].player.position)
+
+
+class TestSearRanks(unittest.TestCase):
+
+    def setUp(self) -> None:
+        pass
+
+    def test_init(self):
+        x = SeatRank('btn')
+        self.assertEqual(x.rank, 'btn')
+
+    def test_add1(self):
+        x = SeatRank('btn') + 1
+        self.assertEqual('sb', x.rank)
+
+    def test(self):
+        x = SeatRank('utg1')
+        self.assertEqual('utg1', x.rank)
+
+    def test_add2(self):
+        x = SeatRank('btn') + 2
+        self.assertEqual('bb', x.rank)
+
+    def test_add3(self):
+        x = SeatRank('utg1') + 1
+        self.assertEqual('utg2', x.rank)
+
+
+        # self.assertEqual('utg2', x.rank)
+
+
+
 class PlayerTests(unittest.TestCase):
     def setUp(self):
         self.p = [Player(name='player{}'.format(i), cash=1.0,
-                         seat=i, position=POSITIONS[i]) for i in range(1, 10)]
+                         seat=i, position=POSITIONS[i]) for i in range(9)]
 
     def test_player(self):
         p = Player('Ciaran', 50, 1, 'BTN')
@@ -137,7 +185,7 @@ class PlayersTest(unittest.TestCase):
         # shuffle(positions)
         p = {}
         for i, pos in POSITIONS.items():
-            p[pos] = Player(name='player'+str(i), position=pos, cash=1.0, seat=seats[i-1])
+            p[pos] = Player(name='player' + str(i), position=pos, cash=1.0, seat=seats[i - 1])
         self.p = p
 
         assert self.p['btn'] != self.p['co']
@@ -148,16 +196,16 @@ class PlayersTest(unittest.TestCase):
 
     def test_position1(self):
         p = Players(self.p)
-        self.assertEqual(p[1].position, 'btn')
+        self.assertEqual(p[0].position, 'btn')
 
     def test_position4(self):
         p = Players(self.p)
         print(p)
-        self.assertEqual(p[4].position, 'utg1')
+        self.assertEqual(p[3].position, 'utg1')
 
     def test_position9(self):
         p = Players(self.p)
-        self.assertEqual(p[9].position, 'co')
+        self.assertEqual(p[8].position, 'co')
 
     def test_len(self):
         p = Players(self.p)
@@ -165,7 +213,7 @@ class PlayersTest(unittest.TestCase):
 
     def test_iterable_is_dct(self):
         p = Players(self.p)
-        self.assertEqual(p['btn'].name, 'player1')
+        self.assertEqual(p['btn'].name, 'player0')
 
     def test_iter(self):
         p = Players(self.p)
@@ -210,9 +258,65 @@ class GameTests(unittest.TestCase):
         """
         g = Game(1, self.p)
         g.deal()
-        for p in g.players:
-            print(p)
-        # print(g.players['btn'].cards)
+        for k, v in g.players.items():
+            self.assertEqual(2, len(v.cards))
+
+    def test_flop(self):
+        g = Game(1, self.p)
+        self.assertEqual(3, len(g.flop))
+
+    def test_turn(self):
+        g = Game(1, self.p)
+        self.assertEqual(1, len(g.turn))
+
+    def test_river(self):
+        g = Game(1, self.p)
+        self.assertEqual(3, len(g.river))
+
+    def test_correct_num_of_cards(self):
+        g = Game(1, self.p)
+        g.deal()  # 18
+        g.flop()  # 3
+        g.turn()  # 1
+        g.river()  # 1
+        self.assertEqual(52 - 23, len(g.deck))
+
+
+    def test_betting(self):
+        T = Table('x', players=self.p)
+        g = T.create_game(1)
+        g.bet()
+        # print(g.restart())
+
+    # def test_play_game(self):
+    #
+    #     g = Game(1, self.p)
+    #     g.play_game()
+
+
+class CashTests(unittest.TestCase):
+    def setUp(self) -> None:
+        pass
+
+    def test_add(self):
+        c1 = Cash(4.00)
+        c2 = Cash(6)
+        self.assertEqual(10, c1 + c2)
+
+    def test_add2(self):
+        c1 = Cash(4.00)
+        c2 = Cash(6)
+        self.assertIsInstance(c1 + c2, numpy.float)
+
+    def test_sub1(self):
+        c1 = Cash(4.00)
+        c2 = Cash(6)
+        self.assertEqual(2, c2 - c1)
+
+    def test_sub1(self):
+        c1 = Cash(4.00)
+        c2 = Cash(6)
+        self.assertEqual(2, c1 - c2)
 
 
 if __name__ == '__main__':

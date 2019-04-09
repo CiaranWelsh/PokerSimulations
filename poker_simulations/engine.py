@@ -10,18 +10,22 @@ logging.basicConfig(format=FORMAT)
 LOG = logging.getLogger(__name__)
 
 POSITIONS = {
-    1: 'btn',
-    2: 'sb',
-    3: 'bb',
-    4: 'utg1',
-    5: 'utg2',
-    6: 'mp1',
-    7: 'mp2',
-    8: 'mp3',
-    9: 'co',
+    0: 'btn',
+    1: 'sb',
+    2: 'bb',
+    3: 'utg1',
+    4: 'utg2',
+    5: 'mp1',
+    6: 'mp2',
+    7: 'mp3',
+    8: 'co',
 }
 
 POSITIONS_INVERTED = {v: k for k, v in POSITIONS.items()}
+
+BETTING_ORDER = ['sb', 'bb', 'utg1', 'utg2',
+                 'mp1', 'mp2', 'mp3', 'co',
+                 'btn']
 
 
 class Card:
@@ -155,15 +159,32 @@ class Deck:
                 return i
 
 
+class Cash(numpy.float):
+
+    def __init__(self, amount, currency='$'):
+        super().__init__()
+        self.amount = amount
+        self.currency = currency
+
+    def __str__(self):
+        return f"Cash({round(self.amount, 2)}{self.currency})"
+
+
 class Player:
 
     def __init__(self, name, cash, seat,
-                 position, cards=[], currency='$'):
+                 position, cards=[], currency='$',
+                 status='in', bet=None):
         self.name = name
-        self.cash = round(cash, 2)
+        if not isinstance(cash, Cash):
+            cash = Cash(cash)
+
+        self.cash = cash
         self.seat = seat
         self.position = position
-        self.cards = cards
+        self.status = status
+        self.bet = bet
+        self.cards = deepcopy(cards)
         self.currency = currency
 
     def __str__(self):
@@ -226,6 +247,51 @@ class Player:
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
         return POSITIONS_INVERTED[self.position] != POSITIONS_INVERTED[other.position]
 
+    def check(self):
+        return None
+
+    def call(self, amount):
+        if self.cash - amount < 0:
+            LOG.info('Not enough money to call. Going all in.')
+            self.all_in()
+        self.cash -= amount
+
+    def all_in(self):
+        self.cash = 0
+
+    def raise_(self, amount):
+        if self.cash - amount < 0:
+            LOG.info(f'Not enough money to raise by '
+                     f'{amount}. Going all in.')
+            self.all_in()
+        self.cash -= amount
+
+    def take_turn(self, play, amount=None, has_checked=False):
+        moves = {
+            'k': 'check',
+            'c': 'call',
+            'r': 'raise',
+            'f': 'fold',
+        }
+        if has_checked is False:
+            if play not in moves.keys():
+                raise ValueError
+
+            if isinstance(play, (int, float)):
+                self.raise_(play)
+
+            elif play == 'k':
+                return None
+
+            elif play == 'c':
+                self.call(amount)
+
+            elif play == 'f':
+                self.fold()
+        else:
+            if play not in ['c', 'r', 'f']:
+                raise ValueError
+
 
 class Players:
 
@@ -236,11 +302,10 @@ class Players:
             iterable = {position: player for position, player in zip(
                 list(POSITIONS.values())[:self.num_players], iterable)}
 
-        if isinstance(iterable, dict):
-            for k in iterable:
-                if k not in POSITIONS.values():
-                    raise ValueError(f'"{k}" is not a valid key for "Players".'
-                                     f' These are valid: {POSITIONS.values()}')
+        for k in iterable:
+            if k not in POSITIONS.values():
+                raise ValueError(f'"{k}" is not a valid key for "Players".'
+                                 f' These are valid: {POSITIONS.values()}')
 
         self.iterable = iterable
 
@@ -248,12 +313,13 @@ class Players:
         return self.iterable.__str__()
 
     def __getitem__(self, item):
-        if item == 0:
-            raise ValueError('cannot get item "0" as indexing starts at 1')
         if isinstance(item, int):
             item = POSITIONS[item]
         assert isinstance(item, str)
         return self.iterable[item]
+
+    def items(self):
+        return self.iterable.items()
 
     def __len__(self):
         return len(self.iterable)
@@ -280,7 +346,7 @@ class Seat:
 
     def __init__(self, position, player=None):
         self.position = position
-        self.player = player
+        self._player = player
 
         if self.position not in POSITIONS.values():
             raise ValueError
@@ -291,6 +357,16 @@ class Seat:
             return True
         return False
 
+    @property
+    def player(self):
+        return self._player
+
+    @player.setter
+    def player(self, player):
+        if not isinstance(player, Player):
+            raise TypeError
+        self._player = player
+
     def __str__(self):
         return f'Seat(position="{self.position}", player={self.player})'
 
@@ -298,15 +374,56 @@ class Seat:
         return self.__str__()
 
 
+class SeatRank:
+    ranks = ['btn', 'sb', 'bb',
+             'utg1', 'utg2',
+             'mp1', 'mp2', 'mp3',
+             'co']
+
+    numeric_ranks = [i for i in range(len(ranks))]
+
+    def __init__(self, rank):
+        self.rank = rank
+        self.ranks = cycle(self.ranks)
+
+        ## iterate to current rank
+        for r in self.ranks:
+            if r == self.rank:
+                break
+
+    def __add__(self, other):
+        assert isinstance(other, int)
+
+        for i in range(other):
+            new_rank = self.ranks.__next__()
+        return SeatRank(new_rank)
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.rank == other
+        elif isinstance(other, SeatRank):
+            return self.rank == other.rank
+
+    def __ne__(self, other):
+
+        if isinstance(other, str):
+            return self.rank != other
+        elif isinstance(other, SeatRank):
+            return self.rank != other.rank
+
+    def __str__(self):
+        return self.rank
+
+
 class Table:
 
     def __init__(self, name, players, steaks=(0.05, 0.10)):
         self.name = name
         self.players = players
-        self._game_id = 0
         self.steaks = steaks
 
         self.pot = 0
+        self._game_id = 0
 
         ## initialise seats
         self.seats = {k: Seat(position=v) for k, v in POSITIONS.items()}
@@ -323,45 +440,94 @@ class Table:
             raise ValueError
         self._game_id = id
 
-    # def add_player(self, player):
-    #     if not isinstance(player, Player):
-    #         raise ValueError(f"Expected a Plauer object. Got a {type(player)}")
-    #     self.seats[player.seat].player = player
-    #
-    # def seat_players(self):
-    #     if isinstance(self.players, Player):
-    #         self.players = [self.players]
-    #
-    #     if isinstance(self.players, list):
-    #         for i in self.players:
-    #             if not isinstance(i, Player):
-    #                 raise ValueError('Expected a Player object.')
-    #
-    #     for i in range(1, len(self.players) + 1):
-    #         self.add_player(self.players[i - 1])
+    def seat_players(self):
+        if isinstance(self.players, Player):
+            self.players = [self.players]
+
+        if isinstance(self.players, list):
+            for i in self.players:
+                if not isinstance(i, Player):
+                    raise ValueError('Expected a Player object.')
+
+        for s in range(len(self.players)):
+            self.seats[s].player = self.players[s]
 
     def __str__(self):
         return f'Table(name="{self.name}")'
 
-    # def play_game(self, game=None):
-    #     self.game_id += 1
-    #     g = Game(self.game_id, self.players)
-    #     g.blinds()
-        # g.deal()
-        # g.preflop()
-        # g.flop()
-        # g.flop_bet()
-        # g.turn()
-        # g.turn_bet()
-        # g.river()
-        # g.river_bet()
+    def create_game(self, hand_id):
+        return Game(hand_id, self.players)
+
+    def play_game(self, game=None):
+        if game is None:
+            self.game_id += 1
+            g = Game(self.game_id, self.players)
+
+        else:
+            g = game
+        g.restart()  ## for reseting the table and rotating positions
+        g.blinds()
+        g.deal()
+        g.bet(which='preflop')
+        g.flop()
+        g.bet(which='flop')
+        g.turn()
+        g.bet(which='turn')
+        g.river()
+        g.bet(which='river')
+
+    def restart(self):
+        print(self.seats)
+
+    def rotate(self):
+        for num, seat in self.seats.items():
+            ## operator is overloaded
+            new_pos = str(SeatRank(seat.position) + 1)
+            seat.position = new_pos
+            if seat.player is not None:
+                seat.player.position = new_pos
+        return self.seats
+
+
+class BetManager:
+    context_options1 = ['check', 'call', 'raise', 'fold']
+    context_options2 = ['call', 'raise', 'fold']
+    stages = ['blinds', 'preflop', 'flop', 'turn', 'river']
+
+    def __init__(self, players, stage='blinds', time_limit=30):
+        self.players = players
+        self.time_limit = time_limit
+        self.stage = stage
+
+    def clear(self):
+        """
+        reset the BetManager to defaults for new round
+        :return:
+        """
+        for player in self.players:
+            player.bet = 0
+            player.status = 'in'
+
+    def decision(self):
+        has_bet = False
+        call_amount = None
+        for pos in BETTING_ORDER:
+            player = self.players[pos]
+            if has_bet:
+                play = input('Call, raise or fold? (c, f, number)')
+            else:
+                play = input('Check, call, raise or fold? (k, c, f, number)')
+
+            player.take_turn(play)
 
 
 class Game:
+    stages = ['blinds', 'preflop', 'flop', 'turn', 'river']
 
     def __init__(self, id, players, steaks=(0.05, 0.10)):
         self.id = id
         self.pot = 0
+        self.stage = 'blinds'
 
         if not isinstance(players, Players):
             players = Players(players)
@@ -383,42 +549,55 @@ class Game:
 
     def deal(self):
         # hole cards
-        for pos in POSITIONS.values():
-            card = deepcopy(self.deck.pop())
-            player = self.players[pos]
-            player.cards.append(card)
-            # print(pos, card)
+        for i in [0, 1]:
+            for pos in POSITIONS.values():
+                card = deepcopy(self.deck.pop())
+                self.players[pos].cards.append(card)
+        self.stage = 'preflop'
 
-        for pos in POSITIONS.values():
-            card = self.deck.pop()
-            self.players[pos].cards.append(card)
-
-    @property
-    def hole_cards(self):
-        hole = OrderedDict()
-        ## card 1
-        for i in range(1, self.num + 1):
-            hole[i] = [self.deck.pop()]
-
-        ## card 2
-        for i in range(1, self.num + 1):
-            hole[i].append(self.deck.pop())
-        return hole
-
-    @property
     def flop(self):
         flop = []
         for i in range(3):
             flop.append(self.deck.pop())
+        self.stage = 'flop'
         return flop
 
-    @property
     def turn(self):
+        self.stage = 'turn'
         return self.deck.pop()
 
-    @property
     def river(self):
+        self.stage = 'river'
         return self.deck.pop()
+
+    def check(self):
+        return None
+
+    def call(self):
+        pass
+
+    def raise_(self):
+        pass
+
+    def bet(self, which='preflop'):
+        if which not in ['preflop', 'flop', 'turn', 'river']:
+            raise ValueError(f'The value of the "which" argument '
+                             f'must be one of "preflop", '
+                             f'"flop", "turn" or "river"')
+
+        for pos in BETTING_ORDER:
+            play = None
+            player = self.players[pos]
+            while play not in (None, 'check', 'call', 'raise'):
+                play = input("Check, call or raise? (1, 2, 3)\n")
+            if play == 'check':
+                return self.check(player)
+            elif play == 'call':
+                return self.call(player)
+            elif play == 'raise':
+                return self.raise_(player)
+            else:
+                raise ValueError
 
     def best_cards(self):
         """
