@@ -9,13 +9,21 @@ FILE_MANAGER = FileManager()
 class ZipperTests(unittest.TestCase):
 
     def setUp(self) -> None:
-        d = r'/home/ncw135/Documents/PokerSimulations/data/nl/0.01-0.02/Pacific-NoLimitHoldem-0.01-0.02-Full-Regular-20190106- 0 (0)'
-        self.files = glob.glob(os.path.join(d, '*.txt'))
+        project_dir = os.path.dirname(os.path.dirname(__file__))
+        data_dir = os.path.join(project_dir, 'data')
+        assert os.path.isdir(data_dir)
+        nl_dir = os.path.join(data_dir, 'nl')
+        assert os.path.isdir(nl_dir)
+        dire = os.path.join(nl_dir, '0.25-0.50')
+        assert os.path.isdir(dire)
+
+        self.files = glob.glob(os.path.join(dire, '*.zip'))
 
     def test(self):
         for f in self.files:
+            print(f)
             z = Zipper().extract()
-        print(z)
+
         # hands = e.read_file(self.files[0])
         # e.parse_hand(hands[0])
 

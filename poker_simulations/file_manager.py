@@ -12,3 +12,6 @@ class FileManager:
     MICRO_STAKES_DIR = os.path.join(NL_DIR, '0.01-0.02')
     assert os.path.isdir(MICRO_STAKES_DIR)
 
+    SMALL_STAKES_DIR = os.path.join(NL_DIR, '0.25-0.50')
+    assert os.path.isdir(SMALL_STAKES_DIR)
+

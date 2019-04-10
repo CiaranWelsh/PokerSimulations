@@ -25,7 +25,7 @@ class Zipper:
             zip_ref.extractall(f[:-4])
 
     def extract(self):
-        files = self.get_zip_files(FILE_MANAGER.MICRO_STAKES_DIR)
+        files = self.get_zip_files(FILE_MANAGER.SMALL_STAKES_DIR)
         for f in files:
             self.unzip(f)
 
