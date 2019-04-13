@@ -56,7 +56,6 @@ from collections import defaultdict
 
 from six import u, iteritems, iterkeys  # pylint: disable=unused-import
 
-
 class Bunch(dict):
     """ A dictionary that provides attribute-style access.
 
@@ -251,14 +250,14 @@ class Bunch(dict):
         return type(self).fromDict(self)
 
 
-class AutoMunch(Bunch):
+class AutoBunch(Bunch):
     def __setattr__(self, k, v):
         """ Works the same as Bunch.__setattr__ but if you supply
             a dictionary as value it will convert it to another Bunch.
         """
-        if isinstance(v, dict) and not isinstance(v, (AutoMunch, Bunch)):
-            v = bunchify(v, AutoMunch)
-        super(AutoMunch, self).__setattr__(k, v)
+        if isinstance(v, dict) and not isinstance(v, (AutoBunch, Bunch)):
+            v = bunchify(v, AutoBunch)
+        super(AutoBunch, self).__setattr__(k, v)
 
 
 class DefaultBunch(Bunch):
@@ -422,123 +421,121 @@ def unbunchify(x):
 
 
 # Serialization
-
 try:
-    try:
-        import json
-    except ImportError:
-        import simplejson as json
-
-
-    def toJSON(self, **options):
-        """ Serializes this Bunch to JSON. Accepts the same keyword options as `json.dumps()`.
-
-            >>> b = Bunch(foo=Bunch(lol=True), hello=42, ponies='are pretty!')
-            >>> json.dumps(b) == b.toJSON()
-            True
-        """
-        return json.dumps(self, **options)
-
-
-    Bunch.toJSON = toJSON
-
+    import json
 except ImportError:
-    pass
-
-try:
-    # Attempt to register ourself with PyYAML as a representer
-    import yaml
-    from yaml.representer import Representer, SafeRepresenter
+    import simplejson as json
 
 
-    def from_yaml(loader, node):
-        """ PyYAML support for Munches using the tag `!bunch` and `!bunch.Bunch`.
+def toJSON(self, **options):
+    """ Serializes this Bunch to JSON. Accepts the same keyword options as `json.dumps()`.
 
-            >>> import yaml
-            >>> yaml.load('''
-            ... Flow style: !bunch.Bunch { Clark: Evans, Brian: Ingerson, Oren: Ben-Kiki }
-            ... Block style: !bunch
-            ...   Clark : Evans
-            ...   Brian : Ingerson
-            ...   Oren  : Ben-Kiki
-            ... ''') #doctest: +NORMALIZE_WHITESPACE
-            {'Flow style': Bunch(Brian='Ingerson', Clark='Evans', Oren='Ben-Kiki'),
-             'Block style': Bunch(Brian='Ingerson', Clark='Evans', Oren='Ben-Kiki')}
-
-            This module registers itself automatically to cover both Bunch and any
-            subclasses. Should you want to customize the representation of a subclass,
-            simply register it with PyYAML yourself.
-        """
-        data = Bunch()
-        yield data
-        value = loader.construct_mapping(node)
-        data.update(value)
+        >>> b = Bunch(foo=Bunch(lol=True), hello=42, ponies='are pretty!')
+        >>> json.dumps(b) == b.toJSON()
+        True
+    """
+    return json.dumps(self, **options)
 
 
-    def to_yaml_safe(dumper, data):
-        """ Converts Bunch to a normal mapping node, making it appear as a
-            dict in the YAML output.
+Bunch.toJSON = toJSON
 
-            >>> b = Bunch(foo=['bar', Bunch(lol=True)], hello=42)
-            >>> import yaml
-            >>> yaml.safe_dump(b, default_flow_style=True)
-            '{foo: [bar, {lol: true}], hello: 42}\\n'
-        """
-        return dumper.represent_dict(data)
+# Attempt to register ourself with PyYAML as a representer
+import yaml
+from yaml.representer import Representer, SafeRepresenter
 
 
-    def to_yaml(dumper, data):
-        """ Converts Bunch to a representation node.
+def from_yaml(loader, node):
+    """ PyYAML support for Munches using the tag `!bunch` and `!bunch.Bunch`.
 
-            >>> b = Bunch(foo=['bar', Bunch(lol=True)], hello=42)
-            >>> import yaml
-            >>> yaml.dump(b, default_flow_style=True)
-            '!bunch.Bunch {foo: [bar, !bunch.Bunch {lol: true}], hello: 42}\\n'
-        """
-        return dumper.represent_mapping(u('!bunch.Bunch'), data)
+        >>> import yaml
+        >>> yaml.load('''
+        ... Flow style: !bunch.Bunch { Clark: Evans, Brian: Ingerson, Oren: Ben-Kiki }
+        ... Block style: !bunch
+        ...   Clark : Evans
+        ...   Brian : Ingerson
+        ...   Oren  : Ben-Kiki
+        ... ''') #doctest: +NORMALIZE_WHITESPACE
+        {'Flow style': Bunch(Brian='Ingerson', Clark='Evans', Oren='Ben-Kiki'),
+         'Block style': Bunch(Brian='Ingerson', Clark='Evans', Oren='Ben-Kiki')}
 
-
-    yaml.add_constructor(u('!bunch'), from_yaml)
-    yaml.add_constructor(u('!bunch.Bunch'), from_yaml)
-
-    SafeRepresenter.add_representer(Bunch, to_yaml_safe)
-    SafeRepresenter.add_multi_representer(Bunch, to_yaml_safe)
-
-    Representer.add_representer(Bunch, to_yaml)
-    Representer.add_multi_representer(Bunch, to_yaml)
-
-
-    # Instance methods for YAML conversion
-    def toYAML(self, **options):
-        """ Serializes this Bunch to YAML, using `yaml.safe_dump()` if
-            no `Dumper` is provided. See the PyYAML documentation for more info.
-
-            >>> b = Bunch(foo=['bar', Bunch(lol=True)], hello=42)
-            >>> import yaml
-            >>> yaml.safe_dump(b, default_flow_style=True)
-            '{foo: [bar, {lol: true}], hello: 42}\\n'
-            >>> b.toYAML(default_flow_style=True)
-            '{foo: [bar, {lol: true}], hello: 42}\\n'
-            >>> yaml.dump(b, default_flow_style=True)
-            '!bunch.Bunch {foo: [bar, !bunch.Bunch {lol: true}], hello: 42}\\n'
-            >>> b.toYAML(Dumper=yaml.Dumper, default_flow_style=True)
-            '!bunch.Bunch {foo: [bar, !bunch.Bunch {lol: true}], hello: 42}\\n'
-
-        """
-        opts = dict(indent=4, default_flow_style=False)
-        opts.update(options)
-        if 'Dumper' not in opts:
-            return yaml.safe_dump(self, **opts)
-        else:
-            return yaml.dump(self, **opts)
+        This module registers itself automatically to cover both Bunch and any
+        subclasses. Should you want to customize the representation of a subclass,
+        simply register it with PyYAML yourself.
+    """
+    data = Bunch()
+    yield data
+    value = loader.construct_mapping(node)
+    data.update(value)
 
 
-    def fromYAML(*args, **kwargs):
-        return bunchify(yaml.load(*args, **kwargs))
+def to_yaml_safe(dumper, data):
+    """ Converts Bunch to a normal mapping node, making it appear as a
+        dict in the YAML output.
+
+        >>> b = Bunch(foo=['bar', Bunch(lol=True)], hello=42)
+        >>> import yaml
+        >>> yaml.safe_dump(b, default_flow_style=True)
+        '{foo: [bar, {lol: true}], hello: 42}\\n'
+    """
+    return dumper.represent_dict(data)
 
 
-    Bunch.toYAML = toYAML
-    Bunch.fromYAML = staticmethod(fromYAML)
+def to_yaml(dumper, data):
+    """ Converts Bunch to a representation node.
 
-except ImportError:
-    pass
+        >>> b = Bunch(foo=['bar', Bunch(lol=True)], hello=42)
+        >>> import yaml
+        >>> yaml.dump(b, default_flow_style=True)
+        '!bunch.Bunch {foo: [bar, !bunch.Bunch {lol: true}], hello: 42}\\n'
+    """
+    return dumper.represent_mapping(u('!bunch.Bunch'), data)
+
+
+yaml.add_constructor(u('!bunch'), from_yaml)
+yaml.add_constructor(u('!bunch.Bunch'), from_yaml)
+yaml.add_constructor(u('!engine.Stack'), from_yaml)
+yaml.add_constructor(u('!Stack'), from_yaml)
+
+SafeRepresenter.add_representer(Bunch, to_yaml_safe)
+SafeRepresenter.add_multi_representer(Bunch, to_yaml_safe)
+# SafeRepresenter.add_representer(engine.Stack, to_yaml_safe)
+# SafeRepresenter.add_multi_representer(engine.Stack, to_yaml_safe)
+
+Representer.add_representer(Bunch, to_yaml)
+Representer.add_multi_representer(Bunch, to_yaml)
+# Representer.add_representer(engine.Stack, to_yaml)
+# Representer.add_multi_representer(engine.Stack, to_yaml)
+
+
+# Instance methods for YAML conversion
+def toYAML(self, **options):
+    """ Serializes this Bunch to YAML, using `yaml.safe_dump()` if
+        no `Dumper` is provided. See the PyYAML documentation for more info.
+
+        >>> b = Bunch(foo=['bar', Bunch(lol=True)], hello=42)
+        >>> import yaml
+        >>> yaml.safe_dump(b, default_flow_style=True)
+        '{foo: [bar, {lol: true}], hello: 42}\\n'
+        >>> b.toYAML(default_flow_style=True)
+        '{foo: [bar, {lol: true}], hello: 42}\\n'
+        >>> yaml.dump(b, default_flow_style=True)
+        '!bunch.Bunch {foo: [bar, !bunch.Bunch {lol: true}], hello: 42}\\n'
+        >>> b.toYAML(Dumper=yaml.Dumper, default_flow_style=True)
+        '!bunch.Bunch {foo: [bar, !bunch.Bunch {lol: true}], hello: 42}\\n'
+
+    """
+    opts = dict(indent=4, default_flow_style=False)
+    opts.update(options)
+    if 'Dumper' not in opts:
+        return yaml.safe_dump(self, **opts)
+    else:
+        return yaml.dump(self, **opts)
+
+
+def fromYAML(*args, **kwargs):
+    return bunchify(yaml.load(*args, **kwargs))
+
+
+Bunch.toYAML = toYAML
+Bunch.fromYAML = staticmethod(fromYAML)
+

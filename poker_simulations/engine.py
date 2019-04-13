@@ -1,10 +1,13 @@
 import os, glob
 from collections import OrderedDict, Counter, deque
-from itertools import cycle
 from random import shuffle
 from copy import deepcopy
 import logging, numpy
 from .bunch import Bunch
+from ruamel.yaml import YAML as ryaml
+import sys
+from io import StringIO
+from contextlib import redirect_stdout
 
 FORMAT = "%(name)s: %(levelname)s: %(funcName)s: %(message)s"
 logging.basicConfig(format=FORMAT)
@@ -168,31 +171,32 @@ class Stack(numpy.float):
         self.currency = currency
 
     def __str__(self):
-        return f"stack({round(self.amount, 2)}{self.currency})"
+        return f"stack({self.currency}{round(self.amount, 2)})"
+
+    def __repr__(self):
+        return self.__str__()
 
 
-class BasePlayer:
+class Player:
 
-    def __init__(self, name, stack, seat,
-                 position, cards=[], currency='$',
-                 status='playing', bet=None):
+    def __init__(self, name, stack,
+                 position, cards=[],
+                 status='playing'):
         self.name = name
         if not isinstance(stack, Stack):
             stack = Stack(stack)
 
         self.stack = stack
-        self.seat = seat
         self.position = position
         self.status = status
-        self.bet = bet
         self.cards = deepcopy(cards)
-        self.currency = currency
+        self.hole_cards_hidden = True
 
         if self.status not in ['playing', 'not-playing']:
             raise ValueError
 
     def __str__(self):
-        return f"Player(name=\"{self.name}\", stack={self.stack}{self.currency}, seat={self.seat}, position=\"{self.position}\", status=\"{self.status}\")"
+        return f"Player(name=\"{self.name}\", stack={self.stack}, position=\"{self.position}\", status=\"{self.status}\")"
 
     def __repr__(self):
         return self.__str__()
@@ -220,78 +224,72 @@ class BasePlayer:
         self.cards = []
 
     def __gt__(self, other):
-        if not isinstance(other, BasePlayer):
+        if not isinstance(other, Player):
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
 
         return POSITIONS_INVERTED[self.position] > POSITIONS_INVERTED[other.position]
 
     def __lt__(self, other):
-        if not isinstance(other, BasePlayer):
+        if not isinstance(other, Player):
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
 
         return POSITIONS_INVERTED[self.position] < POSITIONS_INVERTED[other.position]
 
     def __ge__(self, other):
-        if not isinstance(other, BasePlayer):
+        if not isinstance(other, Player):
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
         return POSITIONS_INVERTED[self.position] >= POSITIONS_INVERTED[other.position]
 
     def __le__(self, other):
-        if not isinstance(other, BasePlayer):
+        if not isinstance(other, Player):
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
         return POSITIONS_INVERTED[self.position] <= POSITIONS_INVERTED[other.position]
 
     def __eq__(self, other):
-        if not isinstance(other, BasePlayer):
+        if not isinstance(other, Player):
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
         return POSITIONS_INVERTED[self.position] == POSITIONS_INVERTED[other.position]
 
     def __ne__(self, other):
-        if not isinstance(other, BasePlayer):
+        if not isinstance(other, Player):
             raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
         return POSITIONS_INVERTED[self.position] != POSITIONS_INVERTED[other.position]
 
     def check(self):
-        return None
+        return {'name': self.name, 'action': 'check', 'amount': None, 'status': 'playing'}
+
+    def fold(self):
+        return {'name': self.name, 'action': 'fold', 'amount': None, 'status': 'folded'}
 
     def call(self, amount):
         if self.stack - amount < 0:
             LOG.info('Not enough money to call. Going all in.')
-            self.all_in()
+            amount = self.stack
         self.stack -= amount
-
-    def all_in(self):
-        self.stack = 0
+        return {'name': self.name, 'action': 'call', 'amount': amount, 'status': 'playing'}
 
     def raise_(self, amount):
         if self.stack - amount < 0:
             LOG.info(f'Not enough money to raise by '
                      f'{amount}. Going all in.')
-            self.all_in()
+            amount = self.stack
         self.stack -= amount
+        return {'name': self.name, 'action': 'raise', 'amount': amount, 'status': 'playing'}
 
-    def take_turn(self, available, probs=None):
-        return numpy.random.choice(available, p=probs)
-
-    def rotate_position(self):
-        if self.position == 'btn':
-            self.position = 'sb'
-        elif self.position == 'sb':
-            self.position = 'bb'
-        elif self.position == 'bb':
-            self.position = 'utg1'
-        elif self.position == 'utg1':
-            self.position = 'utg2'
-        elif self.position == 'utg2':
-            self.position = 'mp1'
-        elif self.position == 'mp1':
-            self.position = 'mp2'
-        elif self.position == 'mp2':
-            self.position = 'mp3'
-        elif self.position == 'mp3':
-            self.position = 'co'
-        elif self.position == 'co':
-            self.position == 'btn'
+    def take_turn(self, available, amount=None, probs=None):
+        choice = numpy.random.choice(available, p=probs)
+        amount = 10
+        assert choice in ['check', 'call', 'raise', 'fold', 'raise_']
+        if choice == 'check':
+            return self.check()
+        elif choice == 'call':
+            return self.call(amount)
+        elif choice == 'raise':
+            return self.raise_(amount)
+        elif choice == 'fold':
+            return self.fold()
+        else:
+            raise ValueError
 
 
 class Players:
@@ -313,9 +311,14 @@ class Players:
     def __str__(self):
         return self.iterable.__str__()
 
+    def __repr__(self):
+        return self.iterable.__repr__()
+
     def __getitem__(self, item):
         if isinstance(item, int):
             item = POSITIONS[item]
+        if isinstance(item, Position):
+            item = str(item)
         assert isinstance(item, str)
         return self.iterable[item]
 
@@ -342,84 +345,9 @@ class Players:
 
         shuffle(seats)
         shuffle(positions)
-        p = [BasePlayer(name='player{}'.format(i), stack=1.0,
-                        seat=seats[i], position=POSITIONS[positions[i]]) for i in range(1, 9)]
+        p = [Player(name='player{}'.format(i), stack=1.0,
+                    seat=seats[i], position=POSITIONS[positions[i]]) for i in range(1, 9)]
         return p
-
-
-class Seat:
-
-    def __init__(self, player=None):
-        self._player = player
-
-    @property
-    def isempty(self):
-        if self.player is None:
-            return True
-        return False
-
-    @property
-    def player(self):
-        return self._player
-
-    @player.setter
-    def player(self, player):
-        if not isinstance(player, BasePlayer):
-            raise TypeError
-        self._player = player
-
-    def __str__(self):
-        if self.isempty:
-            return "Seat(player=\"Empty\")"
-        else:
-            return f"Seat(player=\"{self.player.name}\")"
-
-    def __repr__(self):
-        return self.__str__()
-
-
-class SeatRank:
-    ranks = ['btn', 'sb', 'bb',
-             'utg1', 'utg2',
-             'mp1', 'mp2', 'mp3',
-             'co']
-
-    numeric_ranks = [i for i in range(len(ranks))]
-
-    def __init__(self, rank):
-        self.rank = rank
-        self.ranks = cycle(self.ranks)
-
-        if rank not in self.ranks:
-            raise ValueError
-
-        ## iterate to current rank
-        for r in self.ranks:
-            if r == self.rank:
-                break
-
-    def __add__(self, other):
-        assert isinstance(other, int)
-
-        for i in range(other):
-            new_rank = self.ranks.__next__()
-        return SeatRank(new_rank)
-
-    def __eq__(self, other):
-        if isinstance(other, str):
-            return self.rank == other
-        elif isinstance(other, SeatRank):
-            return self.rank == other.rank
-
-    def __ne__(self, other):
-
-        if isinstance(other, str):
-            return self.rank != other
-        elif isinstance(other, SeatRank):
-            return self.rank != other.rank
-
-    def __str__(self):
-        return self.rank
 
 
 class Dealer:
@@ -428,243 +356,497 @@ class Dealer:
         self.deck = Deck()
         self.deck.shuffle()
 
-    def deal(self, players):
-        for i in [0, 1]:
-            for pos in POSITIONS.keys():
-                card = deepcopy(self.deck.pop())
-                players[pos].cards.append(card)
-        return players
+    def deal_preflop(self, game):
+        count = 0
 
-    def flop(self, game):
+        current_pos = Btn()
+        while count < len(game.players) * 2:
+            current_pos = current_pos.next_position()
+            try:
+                player = game.players[str(current_pos)]
+            except KeyError:
+                continue
+            card = deepcopy(self.deck.pop())
+            player.cards.append(card)
+            count += 1
+
+        return game
+
+    def deal_flop(self, game):
+        if not isinstance(game, Game):
+            raise ValueError(f'game argument should be of type "Game" '
+                             f'but got "{type(game)}" instead.')
+
         flop = []
         for i in range(3):
-            flop.append(self.deck.pop())
-        game.cards.flop = flop
+            card = self.deck.pop()
+            flop.append(card)
+        game.game_info.community_cards += flop
+        assert len(game.game_info.community_cards) < 6
         return game
 
-    def turn(self, game):
-        game.cards.turn = self.deck.pop()
+    def deal_turn(self, game):
+        if not isinstance(game, Game):
+            raise ValueError(f'game argument should be of type "Game" '
+                             f'but got "{type(game)}" instead.')
+
+        game.game_info.community_cards += [self.deck.pop()]
+        assert len(game.game_info.community_cards) < 6
         return game
 
-    def river(self, game):
-        game.cards.river = self.deck.pop()
+    def deal_river(self, game):
+        if not isinstance(game, Game):
+            raise ValueError(f'game argument should be of type "Game" '
+                             f'but got "{type(game)}" instead.')
+
+        game.game_info.community_cards += [self.deck.pop()]
+        assert len(game.game_info.community_cards) < 6
         return game
+
+    def next_player(self, game):
+        """
+        Update game current position, button, current player
+        Args:
+            game:
+
+        Returns:
+
+        """
+        next_pos = Position()[game.game_info.current_position].next_position()
+        return game.players[next_pos]
+
+    def next_street(self, game):
+        current_street = game.game_info.current_street
+        if current_street == 'preflop':
+            game.game_info.current_street = 'flop'
+        elif current_street == 'flop':
+            game.game_info.current_street = 'turn'
+        elif current_street == 'turn':
+            game.game_info.current_street = 'river'
+        else:
+            game.game_info.current_street = 'summary'
+
+        return game
+
+    def request_action(self, game):
+        curr_position = game.game_info.current_position
+        player = game.players[curr_position]
+        if player.status == 'sitting-out':
+            return game
+        if game.game_info.has_checked:
+            actions = player.take_turn(game.action_set2)
+        else:
+            actions = player.take_turn(game.action_set1)
+        street = game.game_info.current_street
+        game.game_info.action_history[street].append(actions)
+        return game
+
+    def showdown(self, game):
+        if len(game.game_info.community_cards) != 5:
+            raise ValueError(f'Something has gone wrong. There must be 5 community cards for a showdown.')
+
+        hands = {}
+        for player in game.players:
+            if game.players[player].status == 'folded':
+                continue
+            hand = Hand(game.players[player].cards + game.game_info.community_cards)
+            hands[player] = hand.eval()
+        winning_pos = max(hands)
+        winning_player = game.players[winning_pos]
+        winning_hand = hands[winning_pos]
+        game.game_info.hand_evals = hand
+        game.game_info.winner = {
+            'winning_player': winning_player,
+            'winning_hand': winning_hand,
+        }
+        return game
+
+        # for k, v in dct.items():
+        #     print(k, v)
+        # print(game.game_info.community_cards)
+
+
+class Position:
+    positions = ['btn', 'sb', 'bb',
+                 'utg1', 'utg2', 'mp1',
+                 'mp2', 'mp3', 'co']
+
+    def __init__(self, position='btn'):
+        self.position = position
+
+    def next_position(self):
+        pass
+
+    def __str__(self):
+        return self.position
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __getitem__(self, item):
+        if isinstance(item, Position):
+            item = str(item)
+        if item not in self.positions:
+            raise ValueError(f'item must be one of {self.positions}. Got "{item}" ')
+        if item == 'btn':
+            return Btn()
+        elif item == 'sb':
+            return Sb()
+        elif item == 'bb':
+            return Bb()
+        elif item == 'utg1':
+            return Utg1()
+        elif item == 'utg2':
+            return Utg2()
+        elif item == 'mp1':
+            return Mp1()
+        elif item == 'mp2':
+            return Mp2()
+        elif item == 'mp3':
+            return Mp3()
+        elif item == 'co':
+            return Co()
+
+    def get_position(self):
+        if self.position == 'btn':
+            return Btn()
+        elif self.position == 'sb':
+            return Sb()
+        elif self.position == 'bb':
+            return Bb()
+        elif self.position == 'utg1':
+            return Utg1()
+        elif self.position == 'utg2':
+            return Utg2()
+        elif self.position == 'mp1':
+            return Mp1()
+        elif self.position == 'mp2':
+            return Mp2()
+        elif self.position == 'mp3':
+            return Mp3()
+        elif self.position == 'co':
+            return Co()
+
+
+class Btn(Position):
+
+    def __init__(self):
+        self.position = 'btn'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Sb()
+
+
+class Sb(Position):
+
+    def __init__(self):
+        self.position = 'sb'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Bb()
+
+
+class Bb(Position):
+
+    def __init__(self):
+        self.position = 'bb'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Utg1()
+
+
+class Utg1(Position):
+
+    def __init__(self):
+        self.position = 'utg1'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Utg2()
+
+
+class Utg2(Position):
+
+    def __init__(self):
+        self.position = 'utg2'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Mp1()
+
+
+class Mp1(Position):
+
+    def __init__(self):
+        self.position = 'mp1'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Mp2()
+
+
+class Mp2(Position):
+
+    def __init__(self):
+        self.position = 'mp2'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Mp3()
+
+
+class Mp3(Position):
+
+    def __init__(self):
+        self.position = 'mp3'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Co()
+
+
+class Co(Position):
+
+    def __init__(self):
+        self.position = 'co'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Btn()
 
 
 class Table:
 
-    def __init__(self, name, players, stakes=(0.05, 0.10)):
+    def __init__(self, players, stakes=(0.05, 0.10), name='tumbleweed'):
         self.name = name
         self.players = players
         self.stakes = stakes
 
         self.dealer = Dealer()
 
-        self.pot = 0
-        self._game_id = -1 #so that table starrts at 0
+        for i in range(len(self.players)):
+            if not isinstance(self.players[i], Player):
+                self.players[i] = Player(**self.players[i])
+
+        if not isinstance(self.players, Players):
+            self.players = Players(self.players)
 
         ## initialise seats
-        self.seats = {v: Seat() for k, v in POSITIONS.items()}
-        self.seat_players()
-        self.create_game()
+        # self.seats = self._create_seats()
+        # self.seats = self._fill_seats()
 
-    def register_player(self, player, seat):
-        self.seats[seat] = player
+    def play_game(self, game=None, to='showdown'):
 
-    def play_game(self, game=None):
-        if game is None:
-            self.game_id += 1
-            g = Game(self.game_id, self.players)
-
+        if to == 'flop':
+            streets = [self.dealer.deal_preflop]
+        elif to == 'turn':
+            streets = [self.dealer.deal_preflop, self.dealer.deal_flop]
+        elif to == 'river':
+            streets = [self.dealer.deal_preflop, self.dealer.deal_flop,
+                       self.dealer.deal_turn]
+        elif to == 'showdown':
+            streets = [self.dealer.deal_preflop, self.dealer.deal_flop,
+                       self.dealer.deal_turn, self.dealer.deal_river]
         else:
-            g = game
-        # g.restart()  ## for reseting the table and rotating positions
-        g.blinds()
-        print(self.dealer.deal(self.players))
-        # g.deal()
-        # g.action(street='preflop')
-        # g.bet(which='preflop')
-        # g.flop()
-        # g.bet(which='flop')
-        # g.turn()
-        # g.bet(which='turn')
-        # g.river()
-        # g.bet(which='river')
-
-    @property
-    def game_id(self):
-        return self._game_id
-
-    @game_id.setter
-    def game_id(self, id):
-        if not isinstance(id, int):
             raise ValueError
-        self._game_id = id
 
-    def seat_players(self):
-        if isinstance(self.players, BasePlayer):
-            self.players = [self.players]
+        if game is None:
+            game = Game(self.players)
 
-        if isinstance(self.players, list):
-            for i in self.players:
-                if not isinstance(i, BasePlayer):
-                    raise ValueError('Expected a Player object.')
+        for street in streets:
+            game = street(game)
+            game = self.street_action(game)
 
-        for player in self.players:
-            self.seats[player.position].player = player
+        if game.game_info.current_street == 'river':
+            game = self.dealer.showdown(game)
 
-    def num_players(self):
-        return len([self.players])
+            game.players[game.info.winner['winning_player'].position].stack += game.game_info.pot
+        return game
+
+    def advance_to(self, game, street='flop'):
+        if game is None:
+            game = Game(self.players)
+
+    def street_action(self, game):
+        count = 0
+        while count != len(game.players):
+            game = self.dealer.request_action(game)
+            next_player = self.dealer.next_player(game)
+            game.game_info.current_player = next_player
+            count += 1
+        game = self.dealer.next_street(game)
+        return game
 
     def __str__(self):
         return f'Table(name="{self.name}")'
-
-    def get_gameplay_order(self):
-        l = []
-        for seat in self.seats:
-            if not self.seats[seat].isempty:
-                if self.seats[seat].player.status != 'not-playing':
-                    l.append(seat)
-        return l
-
-    def create_game(self):
-        return Game(self.game_id+1, self.players)
 
     def restart(self):
         pass
         # print(self.seats)
 
-    def rotate(self):
-        for player in self.players:
-            player.rotate_position()
 
-        for player in self.players:
-            self.seats[player.position] = player
+class Game(Bunch):
+    action_set1 = ['check', 'call', 'raise', 'fold']
+    action_set2 = ['call', 'raise', 'fold']
 
-        return None
-
-
-class Game:
-    streets = ['preflop', 'flop', 'turn', 'river']
-
-    def __init__(self, id, players, steaks=(0.05, 0.10)):
-        self.id = id
-        self.pot = 0
-        self.street = 'preflop'
-
-        if not isinstance(players, Players):
-            players = Players(players)
-
+    def __init__(self, players, game_info={}):
+        self.game_info = Bunch(game_info)
         self.players = players
-        self.stakes = steaks
 
-        self.dealer = Dealer()
-        self.action_history = ActionHistory()
+        if not isinstance(self.players, Players):
+            raise ValueError(f'Expected a "Players" object but got "{type(self.players)}" ')
 
-    def positions(self):
-        seats = OrderedDict()
-        for p in self.players:
-            seats[p] = self.players[p].name
-        return seats
-
-    def blinds(self):
-        self.players['sb'].raise_(self.stakes[0])
-        self.players['bb'].raise_(self.stakes[1])
-
-    def action(self, street='preflop'):
-        print('asdads')
-        for i in self.players:
-            print(i)
-
-    # def bet(self, which='preflop'):
-    #     if which not in ['preflop', 'flop', 'turn', 'river']:
-    #         raise ValueError(f'The value of the "which" argument '
-    #                          f'must be one of "preflop", '
-    #                          f'"flop", "turn" or "river"')
-    #
-    #     for pos in BETTING_ORDER:
-    #         play = None
-    #         player = self.players[pos]
-    #         while play not in (None, 'check', 'call', 'raise'):
-    #             play = input("Check, call or raise? (1, 2, 3)\n")
-    #         if play == 'check':
-    #             return self.check(player)
-    #         elif play == 'call':
-    #             return self.call(player)
-    #         elif play == 'raise':
-    #             return self.raise_(player)
-    #         else:
-    #             raise ValueError
-
-    def best_cards(self):
-        """
-        get the player with the best cards
-        and the cards
-        :return:
-        """
-        results = OrderedDict()
-        for i in self.hole_cards:
-            all7 = self.hole_cards[i] + self.flop + [self.river] + [self.turn]
-            results[i] = Hand(all7).eval()
-
-        winner_dct = {i: results[i] for i in results if results[i] == max(results.values())}
-        return winner_dct, results
-
-
-class BetManager:
-    context_options1 = ['check', 'call', 'raise', 'fold']
-    context_options2 = ['call', 'raise', 'fold']
-    stages = ['blinds', 'preflop', 'flop', 'turn', 'river']
-
-    def __init__(self, players, stage='blinds', time_limit=30):
-        self.players = players
-        self.time_limit = time_limit
-        self.stage = stage
-
-    def clear(self):
-        """
-        reset the BetManager to defaults for new round
-        :return:
-        """
-        for player in self.players:
-            player.bet = 0
-            player.status = 'in'
-
-    def decision(self):
-        has_bet = False
-        call_amount = None
-        for pos in BETTING_ORDER:
-            player = self.players[pos]
-            if has_bet:
-                play = input('Call, raise or fold? (c, f, number)')
-            else:
-                play = input('Check, call, raise or fold? (k, c, f, number)')
-
-            player.take_turn(play)
-
-
-class GameState(Bunch):
-
-    def __init__(self, game_rules={}, players=[], cards=[], actions={}):
-        self.game_rules = game_rules
-        self.players = players
-        self.cards = cards
-        self.actions = actions
+        self._btn = [v.name for k, v in self.players.items() if k == 'btn'][0]
+        self._sb = [v.name for k, v in self.players.items() if k == 'sb'][0]
+        self._bb = [v.name for k, v in self.players.items() if k == 'bb'][0]
 
         self.pot = 0
+        self.seats = self._create_seats()
+        self._validate_players()
+        self.seats = self._fill_seats()
+        self._set_game_info_defaults()
+        self._current_position = self.sb
 
-    def _set_defaults(self):
-        for k, v in self._default_game_rules().item():
-            if k not in self.game_rules:
-                self.game_rules[k] = v
+    def _game_info_defaults(self):
+        return Bunch({
+            'currency': '$',
+            'game_id': None,
+            'has_checked': False,
+            'num_players': len(self.players),
+            'stakes': [0.10, 0.25],
+            'vendor': 'PokerStars',
+            'current_street': 'preflop',
+            'current_position': Position()['utg1'],
+            'community_cards': [],
+            'pot': 0,
+            'call_amount': None,
+            'action_history': dict(
+                preflop=[],
+                flop=[],
+                turn=[],
+                river=[],
+                showdown=[],
+            ),
+            'hands_evals': None,
+            'winner': None
+        })
 
-    def _default_game_rules(self):
-        return {
-            'num_players': 9,
-        }
+    def _set_game_info_defaults(self):
+        dct = self._game_info_defaults()
+        for k, v in dct.items():
+            if k not in self.game_info.keys():
+                self.game_info[k] = v
 
-    def validate_players(self):
+    def __str__(self):
+        return self.to_yaml()
+
+    def _validate_players(self):
+        if isinstance(self.players, list):
+            self.players = Players(self.players)
+
+        if not isinstance(self.players, Players):
+            raise TypeError(f'Expected a list of dict for "players" argument. Got "{type(self.players)}"')
+
+        if len(self.players) == 2:
+            assert self.btn != []
+            assert self.sb != []
+        else:
+            assert self.btn != []
+            assert self.sb != []
+            assert self.bb != []
+
+    @property
+    def btn(self):
+        return self._btn
+
+    @btn.setter
+    def btn(self, new):
+        if not isinstance(new, Player):
+            raise TypeError(f'Expected instance of type "Player" but '
+                            f'got "{type(new)}"')
+        self._btn = new
+
+    @property
+    def sb(self):
+        return self._sb
+
+    @sb.setter
+    def sb(self, new):
+        if not isinstance(new, Player):
+            raise TypeError(f'Expected instance of type "Player" but '
+                            f'got "{type(new)}"')
+        self._sb = new
+
+    @property
+    def bb(self):
+        return self._bb
+
+    @bb.setter
+    def bb(self, new):
+        if not isinstance(new, Player):
+            raise TypeError(f'Expected instance of type "Player" but '
+                            f'got "{type(new)}"')
+        self._bb = new
+
+    def _fill_seats(self):
+        for i in range(len(self.players)):
+            self.seats[i] = self.players[i]
+
+        return self.seats
+
+    def _create_seats(self):
+        """
+        create a empty slot for each potential player
+        Returns:
+            dict
+        """
+        return {i: 'empty' for i in range(9)}
+
+    def to_yaml(self):
+        y = Yaml()
+        return y.to_yaml(self)
+
+
+class Yaml:
+
+    def __init__(self):
         pass
+
+    def _yaml(self):
+        yaml = ryaml()
+        classes = [Game, Position, Utg1, Stack,
+                   Btn, Utg2, Mp1, Mp2, Mp3,
+                   Co, Sb, Bb, Players, Player, Card,
+                   Bunch]
+        for i in classes:
+            yaml.register_class(i)
+        return yaml
+
+    def to_yaml(self, game):
+        assert isinstance(game, Game)
+        yaml = self._yaml()
+        keys_for_yaml = list(game._game_info_defaults().keys()) + [
+            'players'
+        ]
+        # dct_for_yaml = {k: v for k, v in game.game_info.items() if k in keys_for_yaml}
+        # dct_for_yaml.update({k: v for k, v in game.__dict__.items() if k in keys_for_yaml})
+        yaml.default_flow_style = False
+        yaml.indent(mapping=2, sequence=2, offset=0)
+        dct_for_yaml = {}
+        dct_for_yaml['game_info'] = game.game_info
+        dct_for_yaml['players'] = game.players
+        with StringIO() as buf, redirect_stdout(buf):
+            yaml.dump(dct_for_yaml, sys.stdout)
+            yaml_string = buf.getvalue()
+        assert isinstance(yaml_string, str)
+        return yaml_string
+
+    def from_yaml(self, stream):
+        yaml = self._yaml()
+        return yaml.load(stream)
 
 
 class ActionHistory:

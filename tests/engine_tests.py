@@ -71,136 +71,42 @@ class DeckTests(unittest.TestCase):
         self.assertNotEqual(len_before, len_after)
 
 
-class TableTests(unittest.TestCase):
-    positions = {
-        1: 'btn',
-        2: 'sb',
-        3: 'bb',
-        4: 'utg1',
-        5: 'utg2',
-        6: 'mp1',
-        7: 'mp2',
-        8: 'mp3',
-        9: 'co',
-    }
-
-    def setUp(self):
-        self.p = [BasePlayer(name='player{}'.format(i), stack=1.0,
-                             seat=i, position=self.positions[i]) for i in range(1, 10)]
-
-    def test_instantiation(self):
-        t = Table(name='super_poker', players=self.p)
-        self.assertIsInstance(t, Table)
-
-    def test_seats_init(self):
-        t = Table(name='super_poker', players=self.p)
-        for s in t.seats.values():
-            self.assertTrue(s.isempty)
-
-    def test_seats_init(self):
-        t = Table(name='super_poker', players=self.p)
-
-        for s in t.seats.values():
-            self.assertTrue(s.isempty)
-
-    def test_utg1(self):
-        t = Table(name='poe', players=self.p)
-        self.assertTrue(t.utg1)
-
-    def test_btn(self):
-        t = Table(name='poe', players=self.p)
-        self.assertTrue(t.btn)
-
-    def test_seat_players(self):
-        t = Table(name='super_poker', players=self.p)
-        t.seat_players()
-        for s in t.seats.values():
-            self.assertFalse(s.isempty)
-
-    def test_blinds(self):
-        t = Table(name='super_poker', players=self.p)
-
-    def test_rotate(self):
-        t = Table(name='super_poker', players=self.p)
-        t.seat_players()
-        print(t.seats['btn'])
-        t.rotate()
-        print(t.seats['btn'])
-        # self.assertEqual('sb', t.seats[0].position)
-
-    def test_rotate2(self):
-        t = Table(name='super_poker', players=self.p)
-        t.seat_players()
-        t.rotate()
-        # self.assertEqual('sb', t.seats[0].player.position)
-
-    def test_rotate3(self):
-        t = Table(name='super_poker', players=self.p)
-        t.seat_players()
-        # t.bet()
-        self.assertEqual('sb', t.seats[0].player.position)
-
-    def test_game_play_order1(self):
-        p = self.p[:5]
-        t = Table(name='super_poker', players=self.p)
-        t.seat_players()
-        l = t.get_gameplay_order()
-        expected = ['btn', 'sb', 'bb', 'utg1', 'utg2', 'mp1', 'mp2', 'mp3', 'co']
-        self.assertListEqual(expected, l)
-
-    def test_game_play_order2(self):
-        p = self.p[:5]
-        t = Table(name='super_poker', players=p)
-        t.seat_players()
-        l = t.get_gameplay_order()
-        expected = ['btn', 'sb', 'bb', 'utg1', 'utg2']
-        self.assertListEqual(expected, l)
-
-    def test_play(self):
-        p = self.p
-        t = Table(name='super_poker', players=p)
-        t.seat_players()
-        t.play_game()
-
-
-class TestSeatRanks(unittest.TestCase):
-
+class StackTests(unittest.TestCase):
     def setUp(self) -> None:
         pass
 
-    def test_init(self):
-        x = SeatRank('btn')
-        self.assertEqual(x.rank, 'btn')
-
-    def test_add1(self):
-        x = SeatRank('btn') + 1
-        self.assertEqual('sb', x.rank)
-
-    def test(self):
-        x = SeatRank('utg1')
-        self.assertEqual('utg1', x.rank)
+    def test_add(self):
+        c1 = Stack(4.00)
+        c2 = Stack(6)
+        self.assertEqual(10, c1 + c2)
 
     def test_add2(self):
-        x = SeatRank('btn') + 2
-        self.assertEqual('bb', x.rank)
+        c1 = Stack(4.00)
+        c2 = Stack(6)
+        self.assertIsInstance(c1 + c2, numpy.float)
 
-    def test_add3(self):
-        x = SeatRank('utg1') + 1
-        self.assertEqual('utg2', x.rank)
+    def test_sub1(self):
+        c1 = Stack(4.00)
+        c2 = Stack(6)
+        self.assertEqual(2, c2 - c1)
 
-        # self.assertEqual('utg2', x.rank)
+    def test_sub1(self):
+        c1 = Stack(4.00)
+        c2 = Stack(6)
+        self.assertEqual(2, c1 - c2)
 
 
 class PlayerTests(unittest.TestCase):
     def setUp(self):
-        self.p = [BasePlayer(name='player{}'.format(i), stack=1.0,
-                             seat=i, position=POSITIONS[i]) for i in range(9)]
+        self.p = [Player(name='player{}'.format(i), stack=1.0,
+                         seat=i, position=POSITIONS[i]) for i in range(9)]
 
     def test_player(self):
-        p = BasePlayer('Ciaran', 50, 1, 'BTN')
-        self.assertIsInstance(p, BasePlayer)
+        p = Player('Ciaran', 50, 1, 'BTN')
+        self.assertIsInstance(p, Player)
+
     def test_bet(self):
-        p = BasePlayer('Ciaran', 50, 1, 'BTN')
+        p = Player('Ciaran', 50, 1, 'BTN')
         print(p.raise_(0.5))
 
 
@@ -212,7 +118,7 @@ class PlayersTest(unittest.TestCase):
         # shuffle(positions)
         p = {}
         for i, pos in POSITIONS.items():
-            p[pos] = BasePlayer(name='player' + str(i), position=pos, stack=1.0, seat=seats[i - 1])
+            p[pos] = Player(name='player' + str(i), position=pos, stack=1.0, seat=seats[i - 1])
         self.p = p
 
         assert self.p['btn'] != self.p['co']
@@ -252,6 +158,217 @@ class PlayersTest(unittest.TestCase):
 
 
 class GameTests(unittest.TestCase):
+
+    def setUp(self):
+        self.p1 = {'name': 'a', 'stack': 100, 'position': 'btn'}
+        self.p2 = {'name': 'b', 'stack': 110, 'position': 'sb'}
+        self.p3 = {'name': 'c', 'stack': 190, 'position': 'bb'}
+        self.p4 = {'name': 'd', 'stack': 140, 'position': 'utg1'}
+        self.p5 = {'name': 'e', 'stack': 160, 'position': 'utg2'}
+        self.p6 = {'name': 'f', 'stack': 120, 'position': 'mp1'}
+        self.p7 = {'name': 'g', 'stack': 110, 'position': 'mp2'}
+        self.p8 = {'name': 'h', 'stack': 100, 'position': 'mp3'}
+        self.p = [self.p1, self.p2, self.p3, self.p4,
+                  self.p5, self.p5, self.p7, self.p8]
+        self.p = Players([Player(**i) for i in self.p])
+
+    def test_create_seats1(self):
+        g = Game(self.p)
+        expected = 140
+        self.assertEqual(expected, g.seats[3].stack)
+
+    def test_create_seats2(self):
+        g = Game(self.p)
+        expected = 'empty'
+        self.assertEqual(expected, g.seats[8])
+
+    def test_to_yml(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='showdown')
+        self.assertTrue('players: !Players' in game.to_yaml())
+
+    def test_yaml_load(self):
+        string = """players: !Players
+  num_players: 8
+  iterable:
+    btn: !Player
+      name: a
+      stack: !Stack
+        amount: 100
+        currency: $
+      position: btn
+      status: playing
+      cards:
+      - !Card
+        rank: 9
+        suit: H
+      - !Card
+        rank: 6
+        suit: D
+      hole_cards_hidden: true
+    sb: !Player
+      name: b
+      stack: !Stack
+        amount: 110
+        currency: $
+      position: sb
+      status: playing
+      cards:
+      - !Card
+        rank: 4
+        suit: D
+      - !Card
+        rank: 7
+        suit: C
+      hole_cards_hidden: true
+    bb: !Player
+      name: c
+      stack: !Stack
+        amount: 190
+        currency: $
+      position: bb
+      status: playing
+      cards:
+      - !Card
+        rank: Q
+        suit: H
+      - !Card
+        rank: A
+        suit: D
+      hole_cards_hidden: true
+    utg1: !Player
+      name: d
+      stack: 90.0
+      position: utg1
+      status: playing
+      cards:
+      - !Card
+        rank: 6
+        suit: S
+      - !Card
+        rank: 6
+        suit: C
+      hole_cards_hidden: true
+    utg2: !Player
+      name: e
+      stack: !Stack
+        amount: 160
+        currency: $
+      position: utg2
+      status: playing
+      cards:
+      - !Card
+        rank: 9
+        suit: C
+      - !Card
+        rank: 8
+        suit: D
+      hole_cards_hidden: true
+    mp1: !Player
+      name: e
+      stack: !Stack
+        amount: 160
+        currency: $
+      position: utg2
+      status: playing
+      cards:
+      - !Card
+        rank: 10
+        suit: H
+      - !Card
+        rank: 5
+        suit: C
+      hole_cards_hidden: true
+    mp2: !Player
+      name: g
+      stack: !Stack
+        amount: 110
+        currency: $
+      position: mp2
+      status: playing
+      cards:
+      - !Card
+        rank: Q
+        suit: C
+      - !Card
+        rank: 2
+        suit: S
+      hole_cards_hidden: true
+    mp3: !Player
+      name: h
+      stack: !Stack
+        amount: 100
+        currency: $
+      position: mp3
+      status: playing
+      cards:
+      - !Card
+        rank: 10
+        suit: D
+      - !Card
+        rank: 7
+        suit: H
+      hole_cards_hidden: true
+pot: 0"""
+        y = Yaml()
+        print(y.from_yaml(string))
+
+    # def test_btn(self):
+    #     g = Game(self.p)
+    #     expected = 'a'
+    #     self.assertEqual(expected, g.btn.name)
+
+    # def test_btn_setter(self):
+    #     g = Game(self.p)
+    #     g.btn = g.players['sb']
+    #     print(g.btn)
+    #     expected = ''
+    #     self.assertEqual(expected, g.btn)
+
+    # def test_deal_Cards(self):
+    #     t = Table(self.p)
+    #     # print('seats', t.seats)
+    #     t.play_game()
+    #     # Btn()
+    #
+    # def test_blinds(self):
+    #     g = Game(1, self.p)
+    #     g.blinds()
+    #     self.assertAlmostEqual(0.15, g.pot)
+    #
+    # def test_deal(self):
+    #     """
+    #     The only explaination is that these players are the same object!
+    #     :return:
+    #     """
+    #     g = Game(1, self.p)
+    #     g.deal()
+    #     for k, v in g.players.items():
+    #         self.assertEqual(2, len(v.cards))
+    #
+    # def test_flop(self):
+    #     g = Game(1, self.p)
+    #     self.assertEqual(3, len(g.flop))
+    #
+    # def test_turn(self):
+    #     g = Game(1, self.p)
+    #     self.assertEqual(1, len(g.turn))
+    #
+    # def test_river(self):
+    #     g = Game(1, self.p)
+    #     self.assertEqual(3, len(g.river))
+    #
+    # def test_correct_num_of_cards(self):
+    #     g = Game(1, self.p)
+    #     g.deal()  # 18
+    #     g.flop()  # 3
+    #     g.turn()  # 1
+    #     g.river()  # 1
+    #     self.assertEqual(52 - 23, len(g.deck))
+
+
+class TableTests(unittest.TestCase):
     positions = {
         1: 'btn',
         2: 'sb',
@@ -265,106 +382,44 @@ class GameTests(unittest.TestCase):
     }
 
     def setUp(self):
-        self.p = [BasePlayer(name='player{}'.format(i), stack=1.0,
-                             seat=i, position=self.positions[i]) for i in range(1, 10)]
+        self.p = [Player(name='player{}'.format(i), stack=1.0,
+                         position=self.positions[i]) for i in range(1, 10)]
+        self.p = Players(self.p)
 
-    def test_positions(self):
-        g = Game(1, self.p)
-        pos = g.positions()
-        self.assertIsInstance(pos, dict)
+    def test_instantiation(self):
+        t = Table(name='super_poker', players=self.p)
+        self.assertIsInstance(t, Table)
 
-    def test_blinds(self):
-        g = Game(1, self.p)
-        g.blinds()
-        self.assertAlmostEqual(0.15, g.pot)
+    def test_play_to_flop(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='flop')
+        print(game)
 
-    def test_deal(self):
-        """
-        The only explaination is that these players are the same object!
-        :return:
-        """
-        g = Game(1, self.p)
-        g.deal()
-        for k, v in g.players.items():
-            self.assertEqual(2, len(v.cards))
-
-    def test_flop(self):
-        g = Game(1, self.p)
-        self.assertEqual(3, len(g.flop))
-
-    def test_turn(self):
-        g = Game(1, self.p)
-        self.assertEqual(1, len(g.turn))
-
-    def test_river(self):
-        g = Game(1, self.p)
-        self.assertEqual(3, len(g.river))
-
-    def test_correct_num_of_cards(self):
-        g = Game(1, self.p)
-        g.deal()  # 18
-        g.flop()  # 3
-        g.turn()  # 1
-        g.river()  # 1
-        self.assertEqual(52 - 23, len(g.deck))
-
-    def test_betting(self):
-        T = Table('x', players=self.p)
-        g = T.create_game(1)
-        g.bet()
-        # print(g.restart())
-
-    # def test_play_game(self):
-    #
-    #     g = Game(1, self.p)
-    #     g.play_game()
-
-
-class StackTests(unittest.TestCase):
-    def setUp(self) -> None:
-        pass
-
-    def test_add(self):
-        c1 = stack(4.00)
-        c2 = stack(6)
-        self.assertEqual(10, c1 + c2)
-
-    def test_add2(self):
-        c1 = stack(4.00)
-        c2 = stack(6)
-        self.assertIsInstance(c1 + c2, numpy.float)
-
-    def test_sub1(self):
-        c1 = stack(4.00)
-        c2 = stack(6)
-        self.assertEqual(2, c2 - c1)
-
-    def test_sub1(self):
-        c1 = stack(4.00)
-        c2 = stack(6)
-        self.assertEqual(2, c1 - c2)
 
 
 class DealerTests(unittest.TestCase):
 
     def setUp(self):
-        self.p = [BasePlayer(name='player{}'.format(i), stack=1.0,
-                             seat=i, position=POSITIONS[i]) for i in range(9)]
+        self.p = [Player(name='player{}'.format(i), stack=1.0,
+                         position=POSITIONS[i]) for i in range(9)]
 
     def test_deck(self):
         d = Dealer()
         self.assertIsInstance(deque, d.deck)
 
     def test_deal(self):
+        g = Game(self.p)
         d = Dealer()
-        d.deal(self.p)
+        d.deal_preflop(g)
         self.assertEqual(2, len(self.p[0].cards))
 
     def test_flop(self):
         t = Table('x', self.p)
-        t.game.dealer.deal(self.p)
-        t.game.dealer.flop()
+        t.game.dealer.deal_preflop(self.p)
+        t.game.dealer.deal_flop()
         self.assertEqual(2, len(self.p[0].cards))
+
 
 if __name__ == '__main__':
     unittest.main()
