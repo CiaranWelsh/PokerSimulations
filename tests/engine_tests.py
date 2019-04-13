@@ -358,9 +358,7 @@ class TableTests(unittest.TestCase):
         t = Table(name='super_poker', players=p)
         game = t.play_game(to='turn')
         h = game.game_info.action_history
-        # for i in h:
-        #     print(i, h[i])
-        # self.assertNotEqual([], game.game_info.action_history['flop'])
+        self.assertNotEqual([], game.game_info.action_history['flop'])
 
     def test_play_to_river(self):
         p = self.p
