@@ -10,9 +10,11 @@ from io import StringIO
 from contextlib import redirect_stdout
 from datetime import datetime
 
-FORMAT = "%(name)s: %(levelname)s: %(funcName)s: %(message)s"
-logging.basicConfig(format=FORMAT)
-LOG = logging.getLogger(__name__)
+from twiggy import quick_setup as QUICK_SETUP
+from twiggy import log as LOG
+
+
+QUICK_SETUP()
 
 POSITIONS = {
     0: 'btn',
@@ -179,6 +181,7 @@ class Stack(numpy.float):
 
 
 class Player:
+    valid_status = ['playing', 'not-playing', 'folded', 'Empty']
 
     def __init__(self, name, stack,
                  position, cards=[],
@@ -193,7 +196,7 @@ class Player:
         self.cards = deepcopy(cards)
         self.hole_cards_hidden = True
 
-        if self.status not in ['playing', 'not-playing']:
+        if self.status not in self.valid_status:
             raise ValueError
 
     def __str__(self):
@@ -264,14 +267,14 @@ class Player:
 
     def call(self, amount):
         if self.stack - amount < 0:
-            LOG.info('Not enough money to call. Going all in.')
+            logging.info('Not enough money to call. Going all in.')
             amount = self.stack
         self.stack -= amount
         return {'name': self.name, 'action': 'call', 'amount': amount, 'status': 'playing'}
 
     def raise_(self, amount):
         if self.stack - amount < 0:
-            LOG.info(f'Not enough money to raise by '
+            logging.info(f'Not enough money to raise by '
                      f'{amount}. Going all in.')
             amount = self.stack
         self.stack -= amount
@@ -293,6 +296,16 @@ class Player:
             raise ValueError
 
 
+class EmptySeat(Player):
+    name = 'Empty'
+    stack = 0
+    status = 'Empty'
+
+    def __init__(self, position):
+        self.position = position
+        super().__init__(name=self.name, stack=self.stack, position=self.position, status=self.status)
+
+
 class Players:
 
     def __init__(self, iterable):
@@ -308,6 +321,10 @@ class Players:
                                  f' These are valid: {POSITIONS.values()}')
 
         self.iterable = iterable
+
+        for pos in POSITIONS:
+            if POSITIONS[pos] not in self.iterable:
+                self.iterable[POSITIONS[pos]] = EmptySeat(POSITIONS[pos])
 
     def __str__(self):
         return self.iterable.__str__()
@@ -363,9 +380,8 @@ class Dealer:
         current_pos = Btn()
         while count < len(game.players) * 2:
             current_pos = current_pos.next_position()
-            try:
-                player = game.players[str(current_pos)]
-            except KeyError:
+            player = game.players[str(current_pos)]
+            if player.status == 'Empty':
                 continue
             card = deepcopy(self.deck.pop())
             player.cards.append(card)
@@ -436,14 +452,14 @@ class Dealer:
         elif current_street == 'turn':
             game.game_info.current_street = 'river'
         else:
-            game.game_info.current_street = 'summary'
+            raise ValueError
 
         return game
 
     def request_action(self, game):
         curr_position = game.game_info.current_position
         player = game.players[curr_position]
-        if player.status == 'sitting-out':
+        if player.status in ['sitting-out', 'Empty']:
             return game
         if game.game_info.has_checked:
             actions = player.take_turn(game.action_set2)
@@ -474,162 +490,6 @@ class Dealer:
         }
         return game
 
-        # for k, v in dct.items():
-        #     print(k, v)
-        # print(game.game_info.community_cards)
-
-
-class Position:
-    positions = ['btn', 'sb', 'bb',
-                 'utg1', 'utg2', 'mp1',
-                 'mp2', 'mp3', 'co']
-
-    def __init__(self, position='btn'):
-        self.position = position
-
-    def next_position(self):
-        pass
-
-    def __str__(self):
-        return self.position
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __getitem__(self, item):
-        if isinstance(item, Position):
-            item = str(item)
-        if item not in self.positions:
-            raise ValueError(f'item must be one of {self.positions}. Got "{item}" ')
-        if item == 'btn':
-            return Btn()
-        elif item == 'sb':
-            return Sb()
-        elif item == 'bb':
-            return Bb()
-        elif item == 'utg1':
-            return Utg1()
-        elif item == 'utg2':
-            return Utg2()
-        elif item == 'mp1':
-            return Mp1()
-        elif item == 'mp2':
-            return Mp2()
-        elif item == 'mp3':
-            return Mp3()
-        elif item == 'co':
-            return Co()
-
-    def get_position(self):
-        if self.position == 'btn':
-            return Btn()
-        elif self.position == 'sb':
-            return Sb()
-        elif self.position == 'bb':
-            return Bb()
-        elif self.position == 'utg1':
-            return Utg1()
-        elif self.position == 'utg2':
-            return Utg2()
-        elif self.position == 'mp1':
-            return Mp1()
-        elif self.position == 'mp2':
-            return Mp2()
-        elif self.position == 'mp3':
-            return Mp3()
-        elif self.position == 'co':
-            return Co()
-
-
-class Btn(Position):
-
-    def __init__(self):
-        self.position = 'btn'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Sb()
-
-
-class Sb(Position):
-
-    def __init__(self):
-        self.position = 'sb'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Bb()
-
-
-class Bb(Position):
-
-    def __init__(self):
-        self.position = 'bb'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Utg1()
-
-
-class Utg1(Position):
-
-    def __init__(self):
-        self.position = 'utg1'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Utg2()
-
-
-class Utg2(Position):
-
-    def __init__(self):
-        self.position = 'utg2'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Mp1()
-
-
-class Mp1(Position):
-
-    def __init__(self):
-        self.position = 'mp1'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Mp2()
-
-
-class Mp2(Position):
-
-    def __init__(self):
-        self.position = 'mp2'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Mp3()
-
-
-class Mp3(Position):
-
-    def __init__(self):
-        self.position = 'mp3'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Co()
-
-
-class Co(Position):
-
-    def __init__(self):
-        self.position = 'co'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Btn()
-
 
 class Table:
 
@@ -641,14 +501,11 @@ class Table:
 
         for i in self.players:
             if not isinstance(self.players[i], Player):
-                self.players[i] = Player(**self.players[i])
+                if isinstance(self.players[i], dict):
+                    self.players[i] = Player(**self.players[i])
 
         if not isinstance(self.players, Players):
             self.players = Players(self.players)
-
-        ## initialise seats
-        # self.seats = self._create_seats()
-        # self.seats = self._fill_seats()
 
     def play_game(self, game=None, to='river'):
 
@@ -669,6 +526,7 @@ class Table:
             game = Game(self.players)
 
         for street in streets:
+            logging.warning(f'Playing the "{street}"')
             game = street(game)
             game = self.street_action(game)
 
@@ -676,8 +534,10 @@ class Table:
             game = self.dealer.showdown(game)
 
             game.players[game.info.winner['winning_player'].position].stack += game.game_info.pot
+
         if game.game_info.current_street != 'river':
             game = self.next_street(game)
+        print(game.game_info.current_street)
         return game
 
     def next_street(self, game):
@@ -697,7 +557,6 @@ class Table:
 
     def restart(self):
         pass
-        # print(self.seats)
 
 
 class Game(Bunch):
@@ -851,7 +710,7 @@ class Yaml:
         classes = [Game, Position, Utg1, Stack,
                    Btn, Utg2, Mp1, Mp2, Mp3,
                    Co, Sb, Bb, Players, Player, Card,
-                   Bunch]
+                   Bunch, EmptySeat]
         for i in classes:
             yaml.register_class(i)
         return yaml
@@ -1263,3 +1122,155 @@ class HighCard(Hand):
     def get_five_best(self):
         self.isa = True
         return self.cards[:5]
+
+
+class Position:
+    positions = ['btn', 'sb', 'bb',
+                 'utg1', 'utg2', 'mp1',
+                 'mp2', 'mp3', 'co']
+
+    def __init__(self, position='btn'):
+        self.position = position
+
+    def next_position(self):
+        pass
+
+    def __str__(self):
+        return self.position
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __getitem__(self, item):
+        if isinstance(item, Position):
+            item = str(item)
+        if item not in self.positions:
+            raise ValueError(f'item must be one of {self.positions}. Got "{item}" ')
+        if item == 'btn':
+            return Btn()
+        elif item == 'sb':
+            return Sb()
+        elif item == 'bb':
+            return Bb()
+        elif item == 'utg1':
+            return Utg1()
+        elif item == 'utg2':
+            return Utg2()
+        elif item == 'mp1':
+            return Mp1()
+        elif item == 'mp2':
+            return Mp2()
+        elif item == 'mp3':
+            return Mp3()
+        elif item == 'co':
+            return Co()
+
+    def get_position(self):
+        if self.position == 'btn':
+            return Btn()
+        elif self.position == 'sb':
+            return Sb()
+        elif self.position == 'bb':
+            return Bb()
+        elif self.position == 'utg1':
+            return Utg1()
+        elif self.position == 'utg2':
+            return Utg2()
+        elif self.position == 'mp1':
+            return Mp1()
+        elif self.position == 'mp2':
+            return Mp2()
+        elif self.position == 'mp3':
+            return Mp3()
+        elif self.position == 'co':
+            return Co()
+
+
+class Btn(Position):
+
+    def __init__(self):
+        self.position = 'btn'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Sb()
+
+
+class Sb(Position):
+
+    def __init__(self):
+        self.position = 'sb'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Bb()
+
+
+class Bb(Position):
+
+    def __init__(self):
+        self.position = 'bb'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Utg1()
+
+
+class Utg1(Position):
+
+    def __init__(self):
+        self.position = 'utg1'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Utg2()
+
+
+class Utg2(Position):
+
+    def __init__(self):
+        self.position = 'utg2'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Mp1()
+
+
+class Mp1(Position):
+
+    def __init__(self):
+        self.position = 'mp1'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Mp2()
+
+
+class Mp2(Position):
+
+    def __init__(self):
+        self.position = 'mp2'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Mp3()
+
+
+class Mp3(Position):
+
+    def __init__(self):
+        self.position = 'mp3'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Co()
+
+
+class Co(Position):
+
+    def __init__(self):
+        self.position = 'co'
+        super().__init__(self.position)
+
+    def next_position(self):
+        return Btn()
