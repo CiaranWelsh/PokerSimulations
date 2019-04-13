@@ -13,7 +13,6 @@ from datetime import datetime
 from twiggy import quick_setup as QUICK_SETUP
 from twiggy import log as LOG
 
-
 QUICK_SETUP()
 
 POSITIONS = {
@@ -275,7 +274,7 @@ class Player:
     def raise_(self, amount):
         if self.stack - amount < 0:
             logging.info(f'Not enough money to raise by '
-                     f'{amount}. Going all in.')
+                         f'{amount}. Going all in.')
             amount = self.stack
         self.stack -= amount
         return {'name': self.name, 'action': 'raise', 'amount': amount, 'status': 'playing'}
@@ -466,6 +465,7 @@ class Dealer:
         else:
             actions = player.take_turn(game.action_set1)
         street = game.game_info.current_street
+        LOG.debug(street)
         game.game_info.action_history[street].append(actions)
         return game
 
@@ -526,30 +526,30 @@ class Table:
             game = Game(self.players)
 
         for street in streets:
-            logging.warning(f'Playing the "{street}"')
+            LOG.debug(f'Playing the "{street}"')
             game = street(game)
-            game = self.street_action(game)
+            count = 0
+            while count != len(game.players):
+                game = self.dealer.request_action(game)
+                next_pos = self.dealer.next_position(game)
+                game.game_info.current_position = next_pos
+                count += 1
 
-        if game.game_info.current_street == 'river':
+            if game.game_info.current_street != 'river':
+                game = self.dealer.next_street(game)
+
+        if game.game_info.current_street == 'river' and to != 'turn':
             game = self.dealer.showdown(game)
 
             game.players[game.info.winner['winning_player'].position].stack += game.game_info.pot
 
-        if game.game_info.current_street != 'river':
-            game = self.next_street(game)
-        print(game.game_info.current_street)
         return game
 
     def next_street(self, game):
-        return self.dealer.next_street(game)
+        return
 
     def street_action(self, game):
-        count = 0
-        while count != len(game.players):
-            game = self.dealer.request_action(game)
-            next_pos = self.dealer.next_position(game)
-            game.game_info.current_position = next_pos
-            count += 1
+
         return game
 
     def __str__(self):
@@ -631,7 +631,8 @@ class Game(Bunch):
                 self.game_info[k] = v
 
     def __str__(self):
-        return self.to_yaml()
+        y = Yaml()
+        return y.to_yaml_no_player_info(self)
 
     def _validate_players(self):
         if isinstance(self.players, list):
@@ -728,6 +729,19 @@ class Yaml:
         dct_for_yaml = {}
         dct_for_yaml['game_info'] = game.game_info
         dct_for_yaml['players'] = game.players
+        with StringIO() as buf, redirect_stdout(buf):
+            yaml.dump(dct_for_yaml, sys.stdout)
+            yaml_string = buf.getvalue()
+        assert isinstance(yaml_string, str)
+        return yaml_string
+
+    def to_yaml_no_player_info(self, game):
+        assert isinstance(game, Game)
+        yaml = self._yaml()
+        yaml.default_flow_style = False
+        yaml.indent(mapping=2, sequence=2, offset=0)
+        dct_for_yaml = {}
+        dct_for_yaml['game_info'] = game.game_info
         with StringIO() as buf, redirect_stdout(buf):
             yaml.dump(dct_for_yaml, sys.stdout)
             yaml_string = buf.getvalue()
