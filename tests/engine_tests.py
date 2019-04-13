@@ -314,6 +314,11 @@ pot: 0"""
         y = Yaml()
         print(y.from_yaml(string))
 
+    def test_summary(self):
+        t = Table(name='super_poker', players=self.p)
+        # game = t.play_game(to='river')
+        # print(game)
+
     # def test_btn(self):
     #     g = Game(self.p)
     #     expected = 'a'
@@ -394,31 +399,57 @@ class TableTests(unittest.TestCase):
         p = self.p
         t = Table(name='super_poker', players=p)
         game = t.play_game(to='flop')
-        print(game)
+        self.assertNotEqual([], game.game_info.action_history['preflop'])
+
+    def test_play_to_turn(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='turn')
+        self.assertNotEqual([], game.game_info.action_history['flop'])
+
+    def test_play_to_river(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='river')
+        self.assertNotEqual([], game.game_info.action_history['river'])
+
 
 
 
 class DealerTests(unittest.TestCase):
 
     def setUp(self):
-        self.p = [Player(name='player{}'.format(i), stack=1.0,
-                         position=POSITIONS[i]) for i in range(9)]
+        self.p = {POSITIONS[i]: Player(name='player{}'.format(i), stack=1.0,
+                         position=POSITIONS[i]) for i in range(9)}
 
     def test_deck(self):
         d = Dealer()
         self.assertIsInstance(deque, d.deck)
 
-    def test_deal(self):
-        g = Game(self.p)
-        d = Dealer()
-        d.deal_preflop(g)
-        self.assertEqual(2, len(self.p[0].cards))
+    def test_deal_holecards(self):
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='preflop')
+        self.assertEqual(2, len(game.players['btn'].cards))
 
-    def test_flop(self):
-        t = Table('x', self.p)
-        t.game.dealer.deal_preflop(self.p)
-        t.game.dealer.deal_flop()
-        self.assertEqual(2, len(self.p[0].cards))
+    def test_deal_flop(self):
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='flop')
+        self.assertEqual(3, len(game.game_info.community_cards))
+
+    def test_deal_flop(self):
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='flop')
+        self.assertEqual(3, len(game.game_info.community_cards))
+
+    def test_deal_turn(self):
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='turn')
+        self.assertEqual(4, len(game.game_info.community_cards))
+
+    def test_deal_river(self):
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='river')
+        self.assertEqual(5, len(game.game_info.community_cards))
 
 
 if __name__ == '__main__':

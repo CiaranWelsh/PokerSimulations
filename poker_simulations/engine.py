@@ -8,6 +8,7 @@ from ruamel.yaml import YAML as ryaml
 import sys
 from io import StringIO
 from contextlib import redirect_stdout
+from datetime import datetime
 
 FORMAT = "%(name)s: %(levelname)s: %(funcName)s: %(message)s"
 logging.basicConfig(format=FORMAT)
@@ -415,6 +416,17 @@ class Dealer:
         next_pos = Position()[game.game_info.current_position].next_position()
         return game.players[next_pos]
 
+    def next_position(self, game):
+        """
+        Update game current position, button, current player
+        Args:
+            game:
+
+        Returns:
+
+        """
+        return Position()[game.game_info.current_position].next_position()
+
     def next_street(self, game):
         current_street = game.game_info.current_street
         if current_street == 'preflop':
@@ -443,7 +455,8 @@ class Dealer:
 
     def showdown(self, game):
         if len(game.game_info.community_cards) != 5:
-            raise ValueError(f'Something has gone wrong. There must be 5 community cards for a showdown.')
+            raise ValueError(f'Something has gone wrong. There must be 5 community cards for a showdown. '
+                             f'We have "{len(game.game_info.community_cards)}"')
 
         hands = {}
         for player in game.players:
@@ -624,10 +637,9 @@ class Table:
         self.name = name
         self.players = players
         self.stakes = stakes
-
         self.dealer = Dealer()
 
-        for i in range(len(self.players)):
+        for i in self.players:
             if not isinstance(self.players[i], Player):
                 self.players[i] = Player(**self.players[i])
 
@@ -638,16 +650,16 @@ class Table:
         # self.seats = self._create_seats()
         # self.seats = self._fill_seats()
 
-    def play_game(self, game=None, to='showdown'):
+    def play_game(self, game=None, to='river'):
 
-        if to == 'flop':
+        if to == 'preflop':
             streets = [self.dealer.deal_preflop]
-        elif to == 'turn':
+        elif to == 'flop':
             streets = [self.dealer.deal_preflop, self.dealer.deal_flop]
-        elif to == 'river':
+        elif to == 'turn':
             streets = [self.dealer.deal_preflop, self.dealer.deal_flop,
                        self.dealer.deal_turn]
-        elif to == 'showdown':
+        elif to == 'river':
             streets = [self.dealer.deal_preflop, self.dealer.deal_flop,
                        self.dealer.deal_turn, self.dealer.deal_river]
         else:
@@ -664,20 +676,20 @@ class Table:
             game = self.dealer.showdown(game)
 
             game.players[game.info.winner['winning_player'].position].stack += game.game_info.pot
+        if game.game_info.current_street != 'river':
+            game = self.next_street(game)
         return game
 
-    def advance_to(self, game, street='flop'):
-        if game is None:
-            game = Game(self.players)
+    def next_street(self, game):
+        return self.dealer.next_street(game)
 
     def street_action(self, game):
         count = 0
         while count != len(game.players):
             game = self.dealer.request_action(game)
-            next_player = self.dealer.next_player(game)
-            game.game_info.current_player = next_player
+            next_pos = self.dealer.next_position(game)
+            game.game_info.current_position = next_pos
             count += 1
-        game = self.dealer.next_street(game)
         return game
 
     def __str__(self):
@@ -696,8 +708,16 @@ class Game(Bunch):
         self.game_info = Bunch(game_info)
         self.players = players
 
-        if not isinstance(self.players, Players):
-            raise ValueError(f'Expected a "Players" object but got "{type(self.players)}" ')
+        if isinstance(self.players, dict):
+            self.players = Players(self.players)
+
+        if isinstance(self.players, list):
+            raise TypeError('list objects are not accepted. '
+                            'Please seat your players in a dict '
+                            'or Players object. ')
+
+        # if not isinstance(self.players, Players):
+        #     raise ValueError(f'Expected a "Players" object but got "{type(self.players)}" ')
 
         self._btn = [v.name for k, v in self.players.items() if k == 'btn'][0]
         self._sb = [v.name for k, v in self.players.items() if k == 'sb'][0]
@@ -708,11 +728,11 @@ class Game(Bunch):
         self._validate_players()
         self.seats = self._fill_seats()
         self._set_game_info_defaults()
-        self._current_position = self.sb
 
     def _game_info_defaults(self):
         return Bunch({
             'currency': '$',
+            'datetime': datetime.now(),
             'game_id': None,
             'has_checked': False,
             'num_players': len(self.players),
@@ -733,6 +753,17 @@ class Game(Bunch):
             'hands_evals': None,
             'winner': None
         })
+
+    def summary(self):
+        """
+        Writes a game summary
+        Returns:
+
+        """
+        s = ""
+        # s += f"PokerStars Hand #{self.game_info.game_id}:  Hold'em No Limit ({self.game_info.currency}" \
+        #     f"{self.game_info.stakes[0]}/{self.game_info.currency}{self.game_info.stakes[1]} - {self.game_info.datetime}"
+        # s += f"Table '{self.game_info.table_name} 9-max #{self.players['btn'].name} is the button"
 
     def _set_game_info_defaults(self):
         dct = self._game_info_defaults()
