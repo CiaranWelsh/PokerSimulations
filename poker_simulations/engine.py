@@ -377,10 +377,12 @@ class Dealer:
         count = 0
 
         current_pos = Btn()
-        while count < len(game.players) * 2:
+        ## deal a maximum of 18 cards. Missing seats are skipped
+        while count < 9 * 2:
             current_pos = current_pos.next_position()
             player = game.players[str(current_pos)]
             if player.status == 'Empty':
+                count += 1
                 continue
             card = deepcopy(self.deck.pop())
             player.cards.append(card)
@@ -465,7 +467,6 @@ class Dealer:
         else:
             actions = player.take_turn(game.action_set1)
         street = game.game_info.current_street
-        LOG.debug(street)
         game.game_info.action_history[street].append(actions)
         return game
 
@@ -478,6 +479,7 @@ class Dealer:
         for player in game.players:
             if game.players[player].status == 'folded':
                 continue
+
             hand = Hand(game.players[player].cards + game.game_info.community_cards)
             hands[player] = hand.eval()
         winning_pos = max(hands)
@@ -541,7 +543,7 @@ class Table:
         if game.game_info.current_street == 'river' and to != 'turn':
             game = self.dealer.showdown(game)
 
-            game.players[game.info.winner['winning_player'].position].stack += game.game_info.pot
+            game.players[game.game_info.winner['winning_player'].position].stack += game.game_info.pot
 
         return game
 
@@ -779,7 +781,7 @@ class Hand:
         self.isa = False
 
         if len(cards) is not 7:
-            raise ValueError("should be 7 cards")
+            raise ValueError(f"should be 7 cards but got {len(cards)}")
 
         self.five_best = self.get_five_best()
 

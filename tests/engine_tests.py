@@ -366,12 +366,19 @@ class TableTests(unittest.TestCase):
         game = t.play_game(to='river')
         self.assertNotEqual([], game.game_info.action_history['river'])
 
+    def test_play_to_river(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='river')
+        print(game)
+        # self.assertNotEqual([], game.game_info.action_history['river'])
+
 
 class DealerTests(unittest.TestCase):
 
     def setUp(self):
         self.p = {POSITIONS[i]: Player(name='player{}'.format(i), stack=1.0,
-                                       position=POSITIONS[i]) for i in range(9)}
+                                       position=POSITIONS[i]) for i in range(8)}
 
     def test_deck(self):
         d = Dealer()
@@ -380,7 +387,9 @@ class DealerTests(unittest.TestCase):
     def test_deal_holecards(self):
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='preflop')
-        self.assertEqual(2, len(game.players['btn'].cards))
+        for i in game.players:
+            if game.players[i].name != 'Empty':
+                self.assertEqual(2, len(game.players[i].cards))
 
     def test_deal_flop(self):
         t = Table(name='super_poker', players=self.p)
