@@ -340,7 +340,7 @@ class TableTests(unittest.TestCase):
 
     def setUp(self):
         self.p = [Player(name='player{}'.format(i), stack=1.0,
-                         position=self.positions[i]) for i in range(1, 10)]
+                         position=self.positions[i]) for i in range(1, 9)]
         self.p = Players(self.p)
 
     def test_instantiation(self):
@@ -366,29 +366,31 @@ class TableTests(unittest.TestCase):
         game = t.play_game(to='river')
         self.assertNotEqual([], game.game_info.action_history['river'])
 
-    def test_play_to_river(self):
+    def test_play(self):
         p = self.p
         t = Table(name='super_poker', players=p)
         game = t.play_game(to='river')
-        print(game)
+        h = game.game_info.action_history
+        for i in h:
+            print(i, h[i])
         # self.assertNotEqual([], game.game_info.action_history['river'])
 
-
-class DealerTests(unittest.TestCase):
-
-    def setUp(self):
-        self.p = {POSITIONS[i]: Player(name='player{}'.format(i), stack=1.0,
-                                       position=POSITIONS[i]) for i in range(8)}
-
-    def test_deck(self):
-        d = Dealer()
-        self.assertIsInstance(d.deck, Deck)
+    def test_we_have_intended_number_of_empty_seats(self):
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='preflop')
+        expected = 1
+        l = []
+        for pos, player in game.players.items():
+            if player.name == 'Empty':
+                l.append(player)
+        self.assertEqual(expected, len(l))
 
     def test_deal_holecards(self):
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='preflop')
         for i in game.players:
             if game.players[i].name != 'Empty':
+                print(game.players[i].cards)
                 self.assertEqual(2, len(game.players[i].cards))
 
     def test_deal_flop(self):
@@ -410,6 +412,17 @@ class DealerTests(unittest.TestCase):
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='river')
         self.assertEqual(5, len(game.game_info.community_cards))
+
+
+# class DealerTests(unittest.TestCase):
+#
+#     def setUp(self):
+#         self.p = {POSITIONS[i]: Player(name='player{}'.format(i), stack=1.0,
+#                                        position=POSITIONS[i]) for i in range(8)}
+#
+#     def test_deck(self):
+#         d = Dealer()
+#         self.assertIsInstance(d.deck, Deck)
 
 
 if __name__ == '__main__':

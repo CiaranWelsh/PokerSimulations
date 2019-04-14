@@ -367,139 +367,21 @@ class Players:
         return p
 
 
-class Dealer:
-
-    def __init__(self):
-        self.deck = Deck()
-        self.deck.shuffle()
-
-    def deal_preflop(self, game):
-        count = 0
-
-        current_pos = Btn()
-        ## deal a maximum of 18 cards. Missing seats are skipped
-        while count < 9 * 2:
-            current_pos = current_pos.next_position()
-            player = game.players[str(current_pos)]
-            if player.status == 'Empty':
-                count += 1
-                continue
-            card = deepcopy(self.deck.pop())
-            player.cards.append(card)
-            count += 1
-
-        return game
-
-    def deal_flop(self, game):
-        if not isinstance(game, Game):
-            raise ValueError(f'game argument should be of type "Game" '
-                             f'but got "{type(game)}" instead.')
-
-        flop = []
-        for i in range(3):
-            card = self.deck.pop()
-            flop.append(card)
-        game.game_info.community_cards += flop
-        assert len(game.game_info.community_cards) < 6
-        return game
-
-    def deal_turn(self, game):
-        if not isinstance(game, Game):
-            raise ValueError(f'game argument should be of type "Game" '
-                             f'but got "{type(game)}" instead.')
-
-        game.game_info.community_cards += [self.deck.pop()]
-        assert len(game.game_info.community_cards) < 6
-        return game
-
-    def deal_river(self, game):
-        if not isinstance(game, Game):
-            raise ValueError(f'game argument should be of type "Game" '
-                             f'but got "{type(game)}" instead.')
-
-        game.game_info.community_cards += [self.deck.pop()]
-        assert len(game.game_info.community_cards) < 6
-        return game
-
-    def next_player(self, game):
-        """
-        Update game current position, button, current player
-        Args:
-            game:
-
-        Returns:
-
-        """
-        next_pos = Position()[game.game_info.current_position].next_position()
-        return game.players[next_pos]
-
-    def next_position(self, game):
-        """
-        Update game current position, button, current player
-        Args:
-            game:
-
-        Returns:
-
-        """
-        return Position()[game.game_info.current_position].next_position()
-
-    def next_street(self, game):
-        current_street = game.game_info.current_street
-        if current_street == 'preflop':
-            game.game_info.current_street = 'flop'
-        elif current_street == 'flop':
-            game.game_info.current_street = 'turn'
-        elif current_street == 'turn':
-            game.game_info.current_street = 'river'
-        else:
-            raise ValueError
-
-        return game
-
-    def request_action(self, game):
-        curr_position = game.game_info.current_position
-        player = game.players[curr_position]
-        if player.status in ['sitting-out', 'Empty']:
-            return game
-        if game.game_info.has_checked:
-            actions = player.take_turn(game.action_set2)
-        else:
-            actions = player.take_turn(game.action_set1)
-        street = game.game_info.current_street
-        game.game_info.action_history[street].append(actions)
-        return game
-
-    def showdown(self, game):
-        if len(game.game_info.community_cards) != 5:
-            raise ValueError(f'Something has gone wrong. There must be 5 community cards for a showdown. '
-                             f'We have "{len(game.game_info.community_cards)}"')
-
-        hands = {}
-        for player in game.players:
-            if game.players[player].status == 'folded':
-                continue
-
-            hand = Hand(game.players[player].cards + game.game_info.community_cards)
-            hands[player] = hand.eval()
-        winning_pos = max(hands)
-        winning_player = game.players[winning_pos]
-        winning_hand = hands[winning_pos]
-        game.game_info.hand_evals = hand
-        game.game_info.winner = {
-            'winning_player': winning_player,
-            'winning_hand': winning_hand,
-        }
-        return game
-
-
 class Table:
 
-    def __init__(self, players, stakes=(0.05, 0.10), name='tumbleweed'):
+    def __init__(self, players, game=None, stakes=(0.05, 0.10), name='tumbleweed', **kwargs):
         self.name = name
         self.players = players
         self.stakes = stakes
-        self.dealer = Dealer()
+        self.game = game
+        self.kwargs = kwargs
+
+        if self.game is None:
+            self.game = self.create_game()
+
+        self.deck = Deck()
+        self.deck.shuffle()
+
 
         for i in self.players:
             if not isinstance(self.players[i], Player):
@@ -509,50 +391,168 @@ class Table:
         if not isinstance(self.players, Players):
             self.players = Players(self.players)
 
-    def play_game(self, game=None, to='river'):
+    def create_game(self):
+        return Game(self.players, **self.kwargs)
 
-        if to == 'preflop':
-            streets = [self.dealer.deal_preflop]
-        elif to == 'flop':
-            streets = [self.dealer.deal_preflop, self.dealer.deal_flop]
-        elif to == 'turn':
-            streets = [self.dealer.deal_preflop, self.dealer.deal_flop,
-                       self.dealer.deal_turn]
-        elif to == 'river':
-            streets = [self.dealer.deal_preflop, self.dealer.deal_flop,
-                       self.dealer.deal_turn, self.dealer.deal_river]
+    def deal_preflop(self):
+        count = 0
+
+        current_pos = Btn()
+        ## deal a maximum of 18 cards. Missing seats are skipped
+        while count < 9 * 2:
+            current_pos = current_pos.next_position()
+            player = self.game.players[str(current_pos)]
+            if player.status == 'Empty':
+                count += 1
+                continue
+            card = deepcopy(self.deck.pop())
+            player.cards.append(card)
+            count += 1
+
+        return self.game
+
+    def deal_flop(self):
+        if not isinstance(self.game, Game):
+            raise ValueError(f'game argument should be of type "Game" '
+                             f'but got "{type(self.game)}" instead.')
+
+        flop = []
+        for i in range(3):
+            card = self.deck.pop()
+            flop.append(card)
+        self.game.game_info.community_cards += flop
+        assert len(self.game.game_info.community_cards) < 6
+        return self.game
+
+    def deal_turn(self):
+        if not isinstance(self.game, Game):
+            raise ValueError(f'game argument should be of type "Game" '
+                             f'but got "{type(self.game)}" instead.')
+
+        self.game.game_info.community_cards += [self.deck.pop()]
+        assert len(self.game.game_info.community_cards) < 6
+        return self.game
+
+    def deal_river(self):
+        if not isinstance(self.game, Game):
+            raise ValueError(f'game argument should be of type "Game" '
+                             f'but got "{type(self.game)}" instead.')
+
+        self.game.game_info.community_cards += [self.deck.pop()]
+        assert len(self.game.game_info.community_cards) < 6
+        return self.game
+
+    def next_player(self):
+        """
+        Update game current position, button, current player
+        Args:
+            game:
+
+        Returns:
+
+        """
+        next_pos = Position()[self.game.game_info.current_position].next_position()
+        return self.game.players[next_pos]
+
+    def next_position(self):
+        """
+        Update game current position, button, current player
+        Args:
+            game:
+
+        Returns:
+
+        """
+        return Position()[self.game.game_info.current_position].next_position()
+
+    def next_street(self):
+        current_street = self.game.game_info.current_street
+        if current_street == 'preflop':
+            self.game.game_info.current_street = 'flop'
+        elif current_street == 'flop':
+            self.game.game_info.current_street = 'turn'
+        elif current_street == 'turn':
+            self.game.game_info.current_street = 'river'
         else:
             raise ValueError
 
-        if game is None:
-            game = Game(self.players)
+        return self.game
+
+    def showdown(self):
+        if len(self.game.game_info.community_cards) != 5:
+            raise ValueError(f'Something has gone wrong. There must be 5 community cards for a showdown. '
+                             f'We have "{len(self.game.game_info.community_cards)}"')
+
+        hands = {}
+        for player in self.game.players:
+            if self.game.players[player].status in ['Empty', 'folded']:
+                continue
+            cards = self.game.players[player].cards + self.game.game_info.community_cards
+            if len(cards) != 7:
+                raise ValueError(f'Total number of cards to evaluate should be 7 but '
+                                 f'we got {len(cards)}. That is: {len(self.game.game_info.community_cards)} '
+                                 f'community cards and {len(self.game.players[player].cards)} from the player. ')
+
+            hand = Hand(cards)
+            hands[player] = hand.eval()
+        winning_pos = max(hands)
+        winning_player = self.game.players[winning_pos]
+        winning_hand = hands[winning_pos]
+        self.game.game_info.hand_evals = hand
+        self.game.game_info.winner = {
+            'winning_player': winning_player,
+            'winning_hand': winning_hand,
+        }
+        return self.game
+
+    def play_game(self=None, to='river'):
+
+        if to == 'preflop':
+            streets = [self.deal_preflop]
+        elif to == 'flop':
+            streets = [self.deal_preflop, self.deal_flop]
+        elif to == 'turn':
+            streets = [self.deal_preflop, self.deal_flop,
+                       self.deal_turn]
+        elif to == 'river':
+            streets = [self.deal_preflop, self.deal_flop,
+                       self.deal_turn, self.deal_river]
+        else:
+            raise ValueError
 
         for street in streets:
-            LOG.debug(f'Playing the "{street}"')
-            game = street(game)
+            self.game = street()
             count = 0
-            while count != len(game.players):
-                game = self.dealer.request_action(game)
-                next_pos = self.dealer.next_position(game)
-                game.game_info.current_position = next_pos
+            while count != len(self.game.players):
+                self.game = self.request_action()
+                next_pos = self.next_position()
+                self.game.game_info.current_position = next_pos
                 count += 1
 
-            if game.game_info.current_street != 'river':
-                game = self.dealer.next_street(game)
+            if self.game.game_info.current_street != 'river':
+                self.game = self.next_street()
 
-        if game.game_info.current_street == 'river' and to != 'turn':
-            game = self.dealer.showdown(game)
+        if self.game.game_info.current_street == 'river' and to != 'turn':
+            self.game = self.showdown()
 
-            game.players[game.game_info.winner['winning_player'].position].stack += game.game_info.pot
+            self.game.players[self.game.game_info.winner['winning_player'].position].stack += self.game.game_info.pot
 
-        return game
+        return self.game
 
-    def next_street(self, game):
-        return
-
-    def street_action(self, game):
-
-        return game
+    def request_action(self):
+        curr_position = self.game.game_info.current_position
+        player = self.game.players[curr_position]
+        if player.status in ['sitting-out', 'Empty']:
+            return self.game
+        if self.game.game_info.has_checked:
+            actions = player.take_turn(self.game.action_set2)
+        else:
+            actions = player.take_turn(self.game.action_set1)
+        street = self.game.game_info.current_street
+        self.game.game_info.action_history[street].append(actions)
+        if actions == 'check':
+            self.game.game_info.has_checked = True
+        return self.game
 
     def __str__(self):
         return f'Table(name="{self.name}")'
@@ -713,7 +713,10 @@ class Yaml:
         classes = [Game, Position, Utg1, Stack,
                    Btn, Utg2, Mp1, Mp2, Mp3,
                    Co, Sb, Bb, Players, Player, Card,
-                   Bunch, EmptySeat]
+                   Bunch, EmptySeat, Hand, HighCard,
+                   Pair, TwoPair, ThreeOfAKind,
+                   Straight, Flush, FullHouse,
+                   StraightFlush, RoyalFlush]
         for i in classes:
             yaml.register_class(i)
         return yaml
@@ -753,23 +756,6 @@ class Yaml:
     def from_yaml(self, stream):
         yaml = self._yaml()
         return yaml.load(stream)
-
-
-class ActionHistory:
-    streets = ['preflop', 'flop', 'turn', 'river', 'showdown']
-
-    def __init__(self):
-        self.history = {
-            'preflop': [],
-            'flop': [],
-            'turn': [],
-            'river': [],
-            'showdown': [],
-        }
-
-    def add(self, history, which='preflop'):
-        assert which in self.streets
-        self.history[which].append(history)
 
 
 class Hand:
