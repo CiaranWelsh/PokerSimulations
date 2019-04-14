@@ -71,26 +71,6 @@ class DeckTests(unittest.TestCase):
         self.assertNotEqual(len_before, len_after)
 
 
-class StackTests(unittest.TestCase):
-    def setUp(self) -> None:
-        pass
-
-    def test_add(self):
-        c1 = Stack(4.00)
-        c2 = Stack(6)
-        self.assertEqual(10, c1 + c2)
-
-    def test_add2(self):
-        c1 = Stack(4.00)
-        c2 = Stack(6)
-        self.assertIsInstance(c1 + c2, numpy.float)
-
-    def test_sub1(self):
-        c1 = Stack(4.00)
-        c2 = Stack(6)
-        self.assertEqual(2, c2 - c1)
-
-
 class PlayerTests(unittest.TestCase):
     def setUp(self):
         self.p = [Player(name='player{}'.format(i), stack=1.0,
@@ -411,25 +391,96 @@ class TableTests(unittest.TestCase):
         h = game.game_info.action_history
         self.assertNotEqual([], game.game_info.action_history['river'])
 
-    def test_play(self):
+    def test_Winner(self):
+        ## the way Im updating the history needs to change
+        ## currently I append each action to the list for a steet
+        ## but this
+        ##todo implement another set of options for the bb as they can only checka dn raise
+
+        ## when calling a raise, we need to modify the existing money
+
+        ## get players that are still in the game and test to see whether the amount hte
+        ## have put into the pot is the same. If not we continue
+        t = Table(name='super_poker', players=self.p)
+        game = t.play_game(to='river')
+        print(game)
+        winner = t.get_winner(t.game)
+        self.assertTrue(winner['winner'])
+
+    def test_play_batch_games(self):
         p = self.p
         t = Table(name='super_poker', players=p)
-        game = t.play_game(to='river')
-        h = game.game_info.action_history
-        for i in h:
-            print(i, h[i])
+        winners = t.play_batch(10)
+        for i in winners:
+            print(i)
+        # h = game.game_info.action_history
+        # for i in h:
+        #     print(i, h[i])
         # self.assertNotEqual([], game.game_info.action_history['river'])
 
+        ## at the start of every street, has_checked needs to be turned to False
 
-# class DealerTests(unittest.TestCase):
-#
-#     def setUp(self):
-#         self.p = {POSITIONS[i]: Player(name='player{}'.format(i), stack=1.0,
-#                                        position=POSITIONS[i]) for i in range(8)}
-#
-#     def test_deck(self):
-#         d = Dealer()
-#         self.assertIsInstance(d.deck, Deck)
+        ##todo ensure small and big blinds all check to the same amount of money
+        ##todo ensure betting continues until all playrs have bet the same amount via calling or folding
+        ##todo ensure betting continues until all playrs have bet the same amount via calling or folding
+        ##todo change the condition in play_game from when number of actions equals number of players to when all players have to the same amount of money in the pot
+
+
+class RotatePositionTests(unittest.TestCase):
+
+    def test_full_ring(self):
+        p = [Player(name='player{}'.format(i), stack=1.0,
+                    position=POSITIONS[i]) for i in range(9)]
+        p = Players(p)
+        t = Table(name='super_poker', players=p)
+        t.play_game(to='river')
+        t._rotate_players()
+        expected = 'player0'
+        self.assertEqual(expected, t.players['sb'].name)
+
+    def test_8_players_btn_not_empty(self):
+        p = [Player(name='player{}'.format(i), stack=1.0,
+                    position=POSITIONS[i]) for i in range(8)]
+        p = Players(p)
+        t = Table(name='super_poker', players=p)
+        t.play_game(to='river')
+        t._rotate_players()
+        expected = 'Empty'
+        self.assertNotEqual(expected, t.players['btn'].status)
+
+    def test_8_players_sb_not_empt(self):
+        p = [Player(name='player{}'.format(i), stack=1.0,
+                    position=POSITIONS[i]) for i in range(8)]
+        p = Players(p)
+        t = Table(name='super_poker', players=p)
+        t.play_game(to='river')
+        t._rotate_players()
+        expected = 'Empty'
+        self.assertNotEqual(expected, t.players['sb'].status)
+
+    def test_8_players_bb_not_empty(self):
+        p = [Player(name='player{}'.format(i), stack=1.0,
+                    position=POSITIONS[i]) for i in range(8)]
+        p = Players(p)
+        t = Table(name='super_poker', players=p)
+        t.play_game(to='river')
+        t._rotate_players()
+        for pos, pl in t.players.items():
+            print(pos, pl)
+        expected = 'Empty'
+        self.assertNotEqual(expected, t.players['bb'].status)
+
+    def test_6_players_bb_not_empty(self):
+        p = [Player(name='player{}'.format(i), stack=1.0,
+                    position=POSITIONS[i]) for i in range(6)]
+        p = Players(p)
+        t = Table(name='super_poker', players=p)
+        t.play_game(to='river')
+        t._rotate_players()
+        for pos, pl in t.players.items():
+            print(pos, pl)
+        expected = 'Empty'
+        self.assertNotEqual(expected, t.players['bb'].status)
 
 
 if __name__ == '__main__':

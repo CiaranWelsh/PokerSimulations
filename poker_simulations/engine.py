@@ -34,6 +34,11 @@ BETTING_ORDER = ['sb', 'bb', 'utg1', 'utg2',
                  'btn']
 
 
+## todo build a server and host the game, enabling human players to join
+## todo build a small gui for playing the game
+## todo Work out how to make a intellegant player.
+
+
 class Card:
     def __init__(self, rank, suit):
         self.rank = rank
@@ -164,7 +169,15 @@ class Deck:
                 self.cards.remove(i)
                 return i
 
+
 class Player:
+    """
+    How can I make a player intelligent?
+
+    #todo Give player stats
+
+
+    """
     valid_status = ['playing', 'not-playing', 'folded', 'Empty']
 
     def __init__(self, name, stack,
@@ -241,17 +254,34 @@ class Player:
         return POSITIONS_INVERTED[self.position] != POSITIONS_INVERTED[other.position]
 
     def check(self):
-        return {'name': self.name, 'action': 'check', 'amount': None, 'status': 'playing'}
+        return {
+            'name': self.name,
+            'action': 'check',
+            'position': self.position,
+            'amount': None,
+            'status': 'playing'
+        }
 
     def fold(self):
-        return {'name': self.name, 'action': 'fold', 'amount': None, 'status': 'folded'}
+        return {
+            'name': self.name,
+            'position': self.position,
+            'action': 'fold',
+            'amount': None,
+            'status': 'folded'}
 
     def call(self, amount):
         if self.stack - amount < 0:
             logging.info('Not enough money to call. Going all in.')
             amount = self.stack
         self.stack -= amount
-        return {'name': self.name, 'action': 'call', 'amount': amount, 'status': 'playing'}
+        return {
+            'name': self.name,
+            'position': self.position,
+            'action': 'call',
+            'amount': amount,
+            'status': 'playing'
+        }
 
     def raise_(self, amount):
         if self.stack - amount < 0:
@@ -259,7 +289,13 @@ class Player:
                          f'{amount}. Going all in.')
             amount = self.stack
         self.stack -= amount
-        return {'name': self.name, 'action': 'raise', 'amount': amount, 'status': 'playing'}
+        return {
+            'name': self.name,
+            'position': self.position,
+            'action': 'raise',
+            'amount': amount,
+            'status': 'playing'
+        }
 
     def take_turn(self, available, amount=None, probs=None):
         choice = numpy.random.choice(available, p=probs)
@@ -350,6 +386,10 @@ class Players:
 
 
 class Table:
+    """
+    #todo build a way of saving and loading a players information - stack, stats etc.
+
+    """
 
     def __init__(self, players, game=None, stakes=(0.05, 0.10), name='tumbleweed', **kwargs):
         self.name = name
@@ -372,16 +412,46 @@ class Table:
         if not isinstance(self.players, Players):
             self.players = Players(self.players)
 
+        if len(players) == 2:
+            raise ValueError('2 Player Heads-up poker is not yet supported')
+
     def create_game(self):
         return Game(self.players, **self.kwargs)
+
+    def reset_game(self):
+        if self.game is None:
+            raise ValueError
+        defaults = Game.game_info_defaults()
+        defaults.game_id += 1
+        self.game.game_info.update(defaults)
+
+        self.deck = Deck().shuffle()
+        for pos, pl in self.players.items():
+            pl.cards = []
+
+        self.game.players = self._rotate_players()
+
+    def _rotate_players(self):
+        new_players = OrderedDict()
+        for pos, pl in self.players.items():
+            next_pos = str(Position(pos).next_position())
+            new_players[next_pos] = pl
+            pl.position = next_pos
+        self.players = new_players
+
+        for i in ['btn', 'sb', 'bb']:
+            if self.players[i].status in ['Empty', 'sitting-out']:
+                self.players = self._rotate_players()
+
+        return self.players
 
     def deal_preflop(self):
         count = 0
 
-        current_pos = Btn()
+        current_pos = 'btn'
         ## deal a maximum of 18 cards. Missing seats are skipped
         while count < 9 * 2:
-            current_pos = current_pos.next_position()
+            current_pos = Position(current_pos).next_position()
             player = self.game.players[str(current_pos)]
             if player.status == 'Empty':
                 count += 1
@@ -444,7 +514,7 @@ class Table:
         Returns:
 
         """
-        return Position()[self.game.game_info.current_position].next_position()
+        return Position(self.game.game_info.current_position).next_position()
 
     def next_street(self):
         current_street = self.game.game_info.current_street
@@ -466,10 +536,8 @@ class Table:
 
         hands = {}
         for pos, player in self.game.players.items():
-            if player.status in ['Empty', 'folded']:
-                LOG.debug(f'{player.status}')
+            if player.status in ['Empty', 'folded', 'sitting-out']:
                 continue
-            LOG.debug(f'{player} showdown')
 
             cards = player.cards + self.game.game_info.community_cards
             if len(cards) != 7:
@@ -477,7 +545,7 @@ class Table:
                                  f'we got {len(cards)}. That is: {len(self.game.game_info.community_cards)} '
                                  f'community cards and {len(player.cards)} from the player. ')
 
-            hand = Hand(cards)
+            hand = Hand(hole_cards=player.cards, community_cards=self.game.game_info.community_cards)
             hands[pos] = hand.eval()
 
         showdown = self.game.game_info.action_history['showdown']
@@ -488,13 +556,13 @@ class Table:
                 'name': player.name,
                 'hand': hands[pos],
                 'winner': True if max(hands) == pos else False
-                })
+            })
 
         return self.game
 
-    def play_game(self=None, to='river'):
+    def play_game(self, to='river'):
 
-        #todo introduce a 'which' argument to only play single street. Mutual exclusive with 'to'. ensure we dont play out of correct order
+        # todo introduce a 'which' argument to only play single street. Mutual exclusive with 'to'. ensure we dont play out of correct order
 
         # post blinds
         self.take_small_blind()
@@ -515,23 +583,105 @@ class Table:
 
         for street in streets:
             self.game = street()
+            ##reset the has_checked flag for current street
+            self.game.game_info.check_available = False
             count = 0
-            while count != len(self.game.players):
-                self.game = self.request_action()
-                next_pos = self.next_position()
-                self.game.game_info.current_position = next_pos
+            while count != len(self.get_playing()):
+                print(count)
+                ## get the position of the player who's turn it is
+                curr_position = self.game.game_info.current_position
+                player = self.game.players[curr_position]
+                ## ignore empty, sitting out and folded players
+                if player.status in ['Empty', 'sitting-out', 'folded']:
+                    self.game.game_info.current_position = self.next_position()
+                    continue
+                ## get the action from the player
+                action = self.request_action(player)
+                if action['action'] not in ['check', 'fold']:
+                    self.game.game_info.check_available = False
+                # update the action history with the players action
+                street = self.game.game_info.current_street
+                history = self.game.game_info.action_history[street]
+                history.append(action)
+                ## change to next position
+                self.game.game_info.current_position = self.next_position()
+                ## add to count
                 count += 1
+                ## if raise, the other players that are in need to call
+                ## so we subtract that number from count
+                if action['action'] == 'raise':
+                    count = len(self.get_playing())
+                    print('new count starting at ,', count)
 
             if self.game.game_info.current_street != 'river':
                 self.game = self.next_street()
 
         if self.game.game_info.current_street == 'river' and to != 'turn':
-            LOG.debug(self.game.game_info.current_street)
             self.game = self.showdown()
-            winner = self.game.game_info.action_history['showdown']#['winner']
+
+            self.game.game_info['winner'] = self.get_winner(self.game)
+            # todo make sure winner gets paid
+            # winner = self.game.game_info.action_history['showdown']  # ['winner']
             # self.players[winner].stack += self.game.game_info.pot
 
         return self.game
+
+    def get_playing(self):
+        """
+        get players that are still playing in this game
+        Returns:
+            list of players playing in the game
+        """
+        return {k: v for k, v in self.game.players.items() if v.status == 'playing'}
+
+    def request_action(self, player):
+        """
+        I think there is a problem with ordering. We need a different or a copy
+        of the pot for each round and player so that we can keep track of the evolution of
+        the pot in hand history
+        Returns:
+
+        """
+
+        ## if the 'has_checked' flag is True, all players before have checked and we also have the option to check
+        if self.game.game_info.check_available:
+            action = player.take_turn(self.game.action_set_with_check)
+        else:
+            ## if not, then we remove the option to check
+            action = player.take_turn(self.game.action_set_without_check)
+        ##
+        if action['amount'] is not None:
+            self.game.game_info.pot += action['amount']
+
+        ## update player status based on action
+        player.status = action['status']
+
+        ## update the action with current pot information for action_history
+        action['pot'] = deepcopy(self.game.game_info.pot)
+        return action
+
+    @staticmethod
+    def get_winner(game):
+        if game.game_info.action_history['showdown'] is []:
+            raise ValueError('Game has not yet been played to showdown')
+
+        winner = None
+        for i in game.game_info.action_history['showdown']:
+            if i['winner']:
+                winner = i
+        return winner
+
+    def play_batch(self, n):
+        if not isinstance(n, int):
+            raise ValueError(f'n argument must be of type int, not "{type(n)}"')
+        winning_hands = []
+        for i in range(n):
+            LOG.info(f'playing game {i + 1} of {n}')
+            g = self.play_game()
+            print(g)
+            winning_hands.append(g.game_info.winner)
+            self.reset_game()
+        return winning_hands
 
     def take_small_blind(self):
         sb = self.players['sb']
@@ -539,8 +689,10 @@ class Table:
         self.game.game_info.pot += self.game.game_info.stakes[0]
         sb_action = {
             'name': sb.name,
+            'position': 'sb',
             'action': 'small_blind',
             'status': 'playing',
+            'amount': self.game.game_info.stakes[0],
             'pot': deepcopy(self.game.game_info.pot)
         }
         self.game.game_info.action_history['preflop'].append(sb_action)
@@ -551,49 +703,21 @@ class Table:
         self.game.game_info.pot += self.game.game_info.stakes[1]
         sb_action = {
             'name': bb.name,
+            'position': 'bb',
             'action': 'big_blind',
             'status': 'playing',
+            'amount': self.game.game_info.stakes[1],
             'pot': deepcopy(self.game.game_info.pot)
         }
         self.game.game_info.action_history['preflop'].append(sb_action)
 
-    def request_action(self):
-        """
-        I think there is a problem with ordering. We need a different or a copy
-        of the pot for each round and player so that we can keep track of the evolution of
-        the pot in hand history
-        Returns:
-
-        """
-        curr_position = self.game.game_info.current_position
-        player = self.game.players[curr_position]
-        if player.status in ['sitting-out', 'Empty']:
-            return self.game
-        if self.game.game_info.has_checked:
-            actions = player.take_turn(self.game.action_set2)
-        else:
-            actions = player.take_turn(self.game.action_set1)
-        street = self.game.game_info.current_street
-        if actions['amount'] is not None:
-            self.game.game_info.pot += actions['amount']
-
-        actions['pot'] = deepcopy(self.game.game_info.pot)
-
-        self.game.game_info.action_history[street].append(actions)
-        if actions['action'] == 'check':
-            self.game.game_info.has_checked = True
-        return self.game
-
     def __str__(self):
         return f'Table(name="{self.name}")'
 
-    def restart(self):
-        pass
-
 
 class Game(Bunch):
-    action_set1 = ['check', 'call', 'raise', 'fold']
-    action_set2 = ['call', 'raise', 'fold']
+    action_set_with_check = ['check', 'call', 'raise', 'fold']
+    action_set_without_check = ['call', 'raise', 'fold']
 
     def __init__(self, players, game_info={}):
         self.game_info = Bunch(game_info)
@@ -620,17 +744,18 @@ class Game(Bunch):
         self.seats = self._fill_seats()
         self._set_game_info_defaults()
 
-    def _game_info_defaults(self):
+    @staticmethod
+    def game_info_defaults():
         return Bunch({
             'currency': '$',
             'datetime': datetime.now(),
-            'game_id': None,
-            'has_checked': False,
-            'num_players': len(self.players),
+            'game_id': 1,
+            'check_available': True,  ## determines which action set a player is presented with
+            'betting_equal': False,  ## Criteria for ending a round of betting
             'stakes': [0.10, 0.25],
             'vendor': 'PokerStars',
             'current_street': 'preflop',
-            'current_position': Position()['utg1'],
+            'current_position': 'utg1',
             'community_cards': [],
             'pot': 0,
             'call_amount': None,
@@ -641,9 +766,13 @@ class Game(Bunch):
                 river=[],
                 showdown=[],
             ),
-            'hands_evals': None,
-            'winner': None
         })
+
+    def _set_game_info_defaults(self):
+        dct = self.game_info_defaults()
+        for k, v in dct.items():
+            if k not in self.game_info.keys():
+                self.game_info[k] = v
 
     def summary(self):
         """
@@ -655,12 +784,6 @@ class Game(Bunch):
         # s += f"PokerStars Hand #{self.game_info.game_id}:  Hold'em No Limit ({self.game_info.currency}" \
         #     f"{self.game_info.stakes[0]}/{self.game_info.currency}{self.game_info.stakes[1]} - {self.game_info.datetime}"
         # s += f"Table '{self.game_info.table_name} 9-max #{self.players['btn'].name} is the button"
-
-    def _set_game_info_defaults(self):
-        dct = self._game_info_defaults()
-        for k, v in dct.items():
-            if k not in self.game_info.keys():
-                self.game_info[k] = v
 
     def __str__(self):
         y = Yaml()
@@ -740,9 +863,7 @@ class Yaml:
 
     def _yaml(self):
         yaml = ryaml()
-        classes = [Game, Position, Utg1,
-                   Btn, Utg2, Mp1, Mp2, Mp3,
-                   Co, Sb, Bb, Players, Player, Card,
+        classes = [Game, Position, Players, Player, Card,
                    Bunch, EmptySeat, Hand, HighCard,
                    Pair, TwoPair, ThreeOfAKind,
                    Straight, Flush, FullHouse,
@@ -754,7 +875,7 @@ class Yaml:
     def to_yaml(self, game):
         assert isinstance(game, Game)
         yaml = self._yaml()
-        keys_for_yaml = list(game._game_info_defaults().keys()) + [
+        keys_for_yaml = list(game.game_info_defaults().keys()) + [
             'players'
         ]
         # dct_for_yaml = {k: v for k, v in game.game_info.items() if k in keys_for_yaml}
@@ -789,20 +910,23 @@ class Yaml:
 
 
 class Hand:
-    def __init__(self, cards):
+    def __init__(self, hole_cards, community_cards):
         ## sort in decending order
-        self.cards = list(reversed(sorted(cards)))
+        self.community_cards = list(reversed(sorted(community_cards)))
+        self.hole_cards = list(reversed(sorted(hole_cards)))
+        self.cards = self.community_cards + self.hole_cards
+        self.cards = list(reversed(sorted(self.cards)))
 
         ## indicator for whether condition has been met
         self.isa = False
 
-        if len(cards) is not 7:
-            raise ValueError(f"should be 7 cards but got {len(cards)}")
+        if len(self.cards) is not 7:
+            raise ValueError(f"should be 7 cards but got {len(self.cards)}")
 
         self.five_best = self.get_five_best()
 
     def __str__(self):
-        return str("{}({})".format(self.__class__.__name__, self.cards))
+        return f"{self.__class__.__name__}({self.hole_cards}, {self.community_cards})"
 
     def __repr__(self):
         return self.__str__()
@@ -913,7 +1037,7 @@ class Hand:
         """
         isa_list = []
         for hand in Hand.__subclasses__():
-            hand_type = hand(self.cards)
+            hand_type = hand(self.hole_cards, self.community_cards)
             if hand_type.isa:
                 isa_list.append(hand_type)
 
@@ -934,21 +1058,20 @@ class Hand:
 class RoyalFlush(Hand):
     def get_five_best(self):
         cards = deepcopy(self.cards)
-        SF = StraightFlush(cards)
+        SF = StraightFlush(self.hole_cards, self.community_cards)
         if SF.isa:
             ranks = [i.rank for i in SF.five_best]
             if ranks == ['A', 'K', 'Q', 'J', 10]:
                 self.isa = True
                 return cards
         else:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class StraightFlush(Hand):
     def get_five_best(self):
-        cards = deepcopy(self.cards)
-        S = Straight(cards)
-        F = Flush(cards)
+        S = Straight(self.hole_cards, self.community_cards)
+        F = Flush(self.hole_cards, self.community_cards)
 
         if F.isa and S.isa:
             self.isa = True
@@ -957,7 +1080,7 @@ class StraightFlush(Hand):
             assert len(five_best) == 5
             return five_best
         else:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class FourOfAKind(Hand):
@@ -984,7 +1107,7 @@ class FourOfAKind(Hand):
 
             return five_best
         else:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class FullHouse(Hand):
@@ -1006,7 +1129,7 @@ class FullHouse(Hand):
 
             return list(reversed(sorted(five_best)))
         else:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class Flush(Hand):
@@ -1029,7 +1152,7 @@ class Flush(Hand):
             return list(reversed(sorted(five_best)))
 
         else:
-            return HighCard(self.cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class Straight(Hand):
@@ -1050,7 +1173,7 @@ class Straight(Hand):
                             best_five.append(card)
 
         if best_five == []:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
         else:
             self.isa = True
@@ -1085,7 +1208,7 @@ class ThreeOfAKind(Hand):
 
             return five_best
         else:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class TwoPair(Hand):
@@ -1112,7 +1235,7 @@ class TwoPair(Hand):
 
             return five_best
         else:
-            return HighCard(cards)
+            return HighCard(self.hole_cards, self.community_cards)
 
 
 class Pair(Hand):
@@ -1147,7 +1270,7 @@ class Pair(Hand):
             return five_best
 
         else:
-            return HighCard(cards).five_best
+            return HighCard(self.hole_cards, self.community_cards).five_best
 
 
 class HighCard(Hand):
@@ -1165,7 +1288,24 @@ class Position:
         self.position = position
 
     def next_position(self):
-        pass
+        if self.position == 'btn':
+            return 'sb'
+        elif self.position == 'sb':
+            return 'bb'
+        elif self.position == 'bb':
+            return 'utg1'
+        elif self.position == 'utg1':
+            return 'utg2'
+        elif self.position == 'utg2':
+            return 'mp1'
+        elif self.position == 'mp1':
+            return 'mp2'
+        elif self.position == 'mp2':
+            return 'mp3'
+        elif self.position == 'mp3':
+            return 'co'
+        elif self.position == 'co':
+            return 'btn'
 
     def __str__(self):
         return self.position
@@ -1173,136 +1313,4 @@ class Position:
     def __repr__(self):
         return self.__str__()
 
-    def __getitem__(self, item):
-        if isinstance(item, Position):
-            item = str(item)
-        if item not in self.positions:
-            raise ValueError(f'item must be one of {self.positions}. Got "{item}" ')
-        if item == 'btn':
-            return Btn()
-        elif item == 'sb':
-            return Sb()
-        elif item == 'bb':
-            return Bb()
-        elif item == 'utg1':
-            return Utg1()
-        elif item == 'utg2':
-            return Utg2()
-        elif item == 'mp1':
-            return Mp1()
-        elif item == 'mp2':
-            return Mp2()
-        elif item == 'mp3':
-            return Mp3()
-        elif item == 'co':
-            return Co()
-
-    def get_position(self):
-        if self.position == 'btn':
-            return Btn()
-        elif self.position == 'sb':
-            return Sb()
-        elif self.position == 'bb':
-            return Bb()
-        elif self.position == 'utg1':
-            return Utg1()
-        elif self.position == 'utg2':
-            return Utg2()
-        elif self.position == 'mp1':
-            return Mp1()
-        elif self.position == 'mp2':
-            return Mp2()
-        elif self.position == 'mp3':
-            return Mp3()
-        elif self.position == 'co':
-            return Co()
-
-
-class Btn(Position):
-
-    def __init__(self):
-        self.position = 'btn'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Sb()
-
-
-class Sb(Position):
-
-    def __init__(self):
-        self.position = 'sb'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Bb()
-
-
-class Bb(Position):
-
-    def __init__(self):
-        self.position = 'bb'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Utg1()
-
-
-class Utg1(Position):
-
-    def __init__(self):
-        self.position = 'utg1'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Utg2()
-
-
-class Utg2(Position):
-
-    def __init__(self):
-        self.position = 'utg2'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Mp1()
-
-
-class Mp1(Position):
-
-    def __init__(self):
-        self.position = 'mp1'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Mp2()
-
-
-class Mp2(Position):
-
-    def __init__(self):
-        self.position = 'mp2'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Mp3()
-
-
-class Mp3(Position):
-
-    def __init__(self):
-        self.position = 'mp3'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Co()
-
-
-class Co(Position):
-
-    def __init__(self):
-        self.position = 'co'
-        super().__init__(self.position)
-
-    def next_position(self):
-        return Btn()
+    # def get_position(self):
