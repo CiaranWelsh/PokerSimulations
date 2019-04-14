@@ -366,15 +366,6 @@ class TableTests(unittest.TestCase):
         game = t.play_game(to='river')
         self.assertNotEqual([], game.game_info.action_history['river'])
 
-    def test_play(self):
-        p = self.p
-        t = Table(name='super_poker', players=p)
-        game = t.play_game(to='river')
-        h = game.game_info.action_history
-        for i in h:
-            print(i, h[i])
-        # self.assertNotEqual([], game.game_info.action_history['river'])
-
     def test_we_have_intended_number_of_empty_seats(self):
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='preflop')
@@ -412,6 +403,22 @@ class TableTests(unittest.TestCase):
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='river')
         self.assertEqual(5, len(game.game_info.community_cards))
+
+    def test_pot_during_play(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='river')
+        h = game.game_info.action_history
+        self.assertNotEqual([], game.game_info.action_history['river'])
+
+    def test_play(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='river')
+        h = game.game_info.action_history
+        for i in h:
+            print(i, h[i])
+        # self.assertNotEqual([], game.game_info.action_history['river'])
 
 
 # class DealerTests(unittest.TestCase):

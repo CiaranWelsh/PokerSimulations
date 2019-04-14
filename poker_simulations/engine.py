@@ -42,9 +42,9 @@ class Card:
 
     def __str__(self):
         if isinstance(self.rank, str):
-            return "Card('{}', '{}')".format(self.rank, self.suit)
+            return "{}{}".format(self.rank, self.suit)
         else:
-            return "Card({}, '{}')".format(self.rank, self.suit)
+            return "{}{}".format(self.rank, self.suit)
 
     def __repr__(self):
         return self.__str__()
@@ -164,21 +164,6 @@ class Deck:
                 self.cards.remove(i)
                 return i
 
-
-class Stack(numpy.float):
-
-    def __init__(self, amount, currency='$'):
-        super().__init__()
-        self.amount = amount
-        self.currency = currency
-
-    def __str__(self):
-        return f"stack({self.currency}{round(self.amount, 2)})"
-
-    def __repr__(self):
-        return self.__str__()
-
-
 class Player:
     valid_status = ['playing', 'not-playing', 'folded', 'Empty']
 
@@ -186,9 +171,6 @@ class Player:
                  position, cards=[],
                  status='playing'):
         self.name = name
-        if not isinstance(stack, Stack):
-            stack = Stack(stack)
-
         self.stack = stack
         self.position = position
         self.status = status
@@ -281,7 +263,7 @@ class Player:
 
     def take_turn(self, available, amount=None, probs=None):
         choice = numpy.random.choice(available, p=probs)
-        amount = 10
+        amount = 0.2
         assert choice in ['check', 'call', 'raise', 'fold', 'raise_']
         if choice == 'check':
             return self.check()
@@ -381,7 +363,6 @@ class Table:
 
         self.deck = Deck()
         self.deck.shuffle()
-
 
         for i in self.players:
             if not isinstance(self.players[i], Player):
@@ -484,28 +465,40 @@ class Table:
                              f'We have "{len(self.game.game_info.community_cards)}"')
 
         hands = {}
-        for player in self.game.players:
-            if self.game.players[player].status in ['Empty', 'folded']:
+        for pos, player in self.game.players.items():
+            if player.status in ['Empty', 'folded']:
+                LOG.debug(f'{player.status}')
                 continue
-            cards = self.game.players[player].cards + self.game.game_info.community_cards
+            LOG.debug(f'{player} showdown')
+
+            cards = player.cards + self.game.game_info.community_cards
             if len(cards) != 7:
                 raise ValueError(f'Total number of cards to evaluate should be 7 but '
                                  f'we got {len(cards)}. That is: {len(self.game.game_info.community_cards)} '
-                                 f'community cards and {len(self.game.players[player].cards)} from the player. ')
+                                 f'community cards and {len(player.cards)} from the player. ')
 
             hand = Hand(cards)
-            hands[player] = hand.eval()
-        winning_pos = max(hands)
-        winning_player = self.game.players[winning_pos]
-        winning_hand = hands[winning_pos]
-        self.game.game_info.hand_evals = hand
-        self.game.game_info.winner = {
-            'winning_player': winning_player,
-            'winning_hand': winning_hand,
-        }
+            hands[pos] = hand.eval()
+
+        showdown = self.game.game_info.action_history['showdown']
+        for pos, player in self.game.players.items():
+            if player.status in ['folded', 'Empty']:
+                continue
+            showdown.append({
+                'name': player.name,
+                'hand': hands[pos],
+                'winner': True if max(hands) == pos else False
+                })
+
         return self.game
 
     def play_game(self=None, to='river'):
+
+        #todo introduce a 'which' argument to only play single street. Mutual exclusive with 'to'. ensure we dont play out of correct order
+
+        # post blinds
+        self.take_small_blind()
+        self.take_big_blind()
 
         if to == 'preflop':
             streets = [self.deal_preflop]
@@ -533,13 +526,45 @@ class Table:
                 self.game = self.next_street()
 
         if self.game.game_info.current_street == 'river' and to != 'turn':
+            LOG.debug(self.game.game_info.current_street)
             self.game = self.showdown()
-
-            self.game.players[self.game.game_info.winner['winning_player'].position].stack += self.game.game_info.pot
+            winner = self.game.game_info.action_history['showdown']#['winner']
+            # self.players[winner].stack += self.game.game_info.pot
 
         return self.game
 
+    def take_small_blind(self):
+        sb = self.players['sb']
+        sb.stack -= self.game.game_info.stakes[0]
+        self.game.game_info.pot += self.game.game_info.stakes[0]
+        sb_action = {
+            'name': sb.name,
+            'action': 'small_blind',
+            'status': 'playing',
+            'pot': deepcopy(self.game.game_info.pot)
+        }
+        self.game.game_info.action_history['preflop'].append(sb_action)
+
+    def take_big_blind(self):
+        bb = self.players['bb']
+        bb.stack -= self.game.game_info.stakes[1]
+        self.game.game_info.pot += self.game.game_info.stakes[1]
+        sb_action = {
+            'name': bb.name,
+            'action': 'big_blind',
+            'status': 'playing',
+            'pot': deepcopy(self.game.game_info.pot)
+        }
+        self.game.game_info.action_history['preflop'].append(sb_action)
+
     def request_action(self):
+        """
+        I think there is a problem with ordering. We need a different or a copy
+        of the pot for each round and player so that we can keep track of the evolution of
+        the pot in hand history
+        Returns:
+
+        """
         curr_position = self.game.game_info.current_position
         player = self.game.players[curr_position]
         if player.status in ['sitting-out', 'Empty']:
@@ -549,8 +574,13 @@ class Table:
         else:
             actions = player.take_turn(self.game.action_set1)
         street = self.game.game_info.current_street
+        if actions['amount'] is not None:
+            self.game.game_info.pot += actions['amount']
+
+        actions['pot'] = deepcopy(self.game.game_info.pot)
+
         self.game.game_info.action_history[street].append(actions)
-        if actions == 'check':
+        if actions['action'] == 'check':
             self.game.game_info.has_checked = True
         return self.game
 
@@ -710,7 +740,7 @@ class Yaml:
 
     def _yaml(self):
         yaml = ryaml()
-        classes = [Game, Position, Utg1, Stack,
+        classes = [Game, Position, Utg1,
                    Btn, Utg2, Mp1, Mp2, Mp3,
                    Co, Sb, Bb, Players, Player, Card,
                    Bunch, EmptySeat, Hand, HighCard,
