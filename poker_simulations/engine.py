@@ -586,13 +586,17 @@ class Table:
             ##reset the has_checked flag for current street
             self.game.game_info.check_available = False
             count = 0
-            while count != len(self.get_playing()):
+
+            ## is it possible to iterate over amounts paid in and work
+            ## from that? 
+            while count != len(self.game.players):
                 print(count)
                 ## get the position of the player who's turn it is
                 curr_position = self.game.game_info.current_position
                 player = self.game.players[curr_position]
                 ## ignore empty, sitting out and folded players
                 if player.status in ['Empty', 'sitting-out', 'folded']:
+                    count += 1
                     self.game.game_info.current_position = self.next_position()
                     continue
                 ## get the action from the player
@@ -609,9 +613,9 @@ class Table:
                 count += 1
                 ## if raise, the other players that are in need to call
                 ## so we subtract that number from count
-                if action['action'] == 'raise':
-                    count = len(self.get_playing())
-                    print('new count starting at ,', count)
+                # if action['action'] == 'raise':
+                #     count = len(self.get_playing())
+                #     print('new count starting at ,', count)
 
             if self.game.game_info.current_street != 'river':
                 self.game = self.next_street()
