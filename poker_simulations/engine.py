@@ -38,6 +38,8 @@ BETTING_ORDER = ['sb', 'bb', 'utg1', 'utg2',
 ## todo build a small gui for playing the game
 ## todo Work out how to make a intellegant player.
 
+class LessThan3PlayersError(Exception):
+    pass
 
 class Card:
     def __init__(self, rank, suit):
@@ -307,7 +309,7 @@ class Player:
         choice = numpy.random.choice(available, p=probs)
         assert choice in ['check', 'call', 'raise', 'fold', 'all-in']
         amount_to_call = max(betting_dct.values()) - betting_dct[self.position]
-        amount_to_raise = max(betting_dct.values()) + bb*1
+        amount_to_raise = max(betting_dct.values()) + bb * 1
 
         if amount_to_call == 0 and choice == 'call':
             choice == 'check'
@@ -564,13 +566,16 @@ class Table:
             hand = Hand(hole_cards=player.cards, community_cards=self.game.game_info.community_cards)
             hands[pos] = hand.eval()
 
+        print('ahhands', hands)
+
         winner = {k: v for k, v in hands.items() if v == max(list(hands.values()))}
         showdown = self.game.game_info.action_history['showdown']
         for pos, player in self.game.players.items():
-            if player.status in ['folded', 'Empty']:
+            if player.status in ['folded', 'Empty', 'sitting-out']:
                 continue
             showdown.append({
                 'name': player.name,
+                'position': player.position,
                 'hand': hands[pos],
                 'winner': True if list(winner.keys())[0] == pos else False
             })
@@ -597,13 +602,26 @@ class Table:
                        self.deal_turn, self.deal_river]
         else:
             raise ValueError
+        print(self.players)
+        for pos, pl in self.players.items():
+            if pl.status == 'Empty':
+                continue
+            elif pl.stack == 0:
+                LOG.critical('player {} went all in and has stack={}. Setting to sitting out'.format(pos, pl.stack))
+                pl.status = 'sitting-out'
+            elif pl.status == 'folded':
+                pl.status = 'playing'
+
+        num_playing = len({k: v for k, v in self.players.items() if v.status == 'playing'})
+        if num_playing < 3:
+            raise LessThan3PlayersError('Playing with less than 3 players is not yet supported')
 
         for street in streets:
             self.game = street()
-            LOG.debug(f'Street: {self.game.game_info.current_street}')
+            LOG.debug(f'Street: {self.game.game_info.current_street}, method called: '
+                      f'{street.__class__.__name__} ')
             ##reset the has_checked flag for current street
             self.game.game_info.check_available = False
-            count = 0
 
             ## is it possible to iterate over amounts paid in and work
             ## from that?
@@ -613,30 +631,26 @@ class Table:
             if self.game.game_info.current_street == 'preflop':
                 betting_dct['sb'] = self.game.game_info.stakes[0]
                 betting_dct['bb'] = self.game.game_info.stakes[1]
-            while len(list(set(betting_dct.values()))) != 1:
-                ## get the position of the player who's turn it is
-                curr_position = self.game.game_info.current_position
-                player = self.game.players[curr_position]
-                ## ignore empty, sitting out and folded players
-                if player.status in ['Empty', 'sitting-out', 'folded', 'all-in']:
-                    self.game.game_info.current_position = self.next_position()
-                    continue
-                ## get the action from the player
-                action = self.request_action(player, betting_dct)
-                if action['action'] not in ['check', 'fold']:
-                    self.game.game_info.check_available = False
-                    betting_dct[curr_position] += deepcopy(action['amount'])
-                # update the action history with the players action
-                street = self.game.game_info.current_street
-                history = self.game.game_info.action_history[street]
-                history.append(action)
-                ## change to next position
-                self.game.game_info.current_position = self.next_position()
-                ## if player folds, remove him from betting dict
-                if action['action'] == 'fold':
-                    del betting_dct[curr_position]
-                LOG.debug(f'Current position={player.position}, action={action["action"]}, '
-                          f'amount= {action["amount"]}')
+
+            ## account for everybody folding to one player
+            if len(self.get_playing()) == 1:
+                LOG.warning('1 player left')
+                winner = self.get_playing()
+                win_pos = list(winner.keys())[0]
+                print('winner', winner, win_pos)
+                print('winning pos == {}'.format(win_pos))
+                print(pos, winner[pos])
+                self.game.game_info['winner'] = {
+                    'position': pos,
+                    'name': winner[pos].name,
+                    'hand': Hand(hole_cards=self.players[list(winner.keys())[0]].hole_cards,
+                                 community_cards=self.game.game_info.community_cards)}
+                ## pay winner
+                self.players[self.game.game_info['winner']['position']].stack += self.game.game_info.pot
+                break
+            ## game play abstracted into a function
+            ## so that I can use break on inner loop and outer loop
+            self._game_play(betting_dct)
 
             if self.game.game_info.current_street != 'river':
                 self.game = self.next_street()
@@ -645,15 +659,48 @@ class Table:
             self.game = self.showdown()
 
             self.game.game_info['winner'] = self.get_winner(self.game)
-            # todo make sure winner gets paid
-            # winner = self.game.game_info.action_history['showdown']  # ['winner']
-            # self.players[winner].stack += self.game.game_info.pot
-        LOG.debug(f'winner is: {self.game.game_info["winner"]["name"]} with {self.game.game_info["winner"]["hand"]}')
+
+            ## pay winner
+            self.players[self.game.game_info['winner']['position']].stack += self.game.game_info.pot
+
+        LOG.debug(f'winner of '
+                  f'{self.game.game_info.pot} is: '
+                  f'{self.game.game_info["winner"]["position"]} with '
+                  f'{self.game.game_info["winner"]["hand"]}')
         LOG.debug(f'\tother players had:')
         for pl in self.game.game_info.action_history['showdown']:
+            # print(self.game.game_info['winnner'])
+            # if pl.position == self.players[self.game.game_info['winner']].position:
+            #     continue
             ## account for case where everybody folds
-            LOG.debug(f'\t\t{pl["name"]}, hand:{pl["hand"]}')
+            LOG.debug(f'\t\t{pl["position"]}, hand:{pl["hand"]}')
         return self.game
+
+    def _game_play(self, betting_dct):
+        while len(list(set(betting_dct.values()))) != 1:
+            ## get the position of the player who's turn it is
+            curr_position = self.game.game_info.current_position
+            player = self.game.players[curr_position]
+            ## ignore empty, sitting out and folded players
+            if player.status in ['Empty', 'sitting-out', 'folded', 'all-in']:
+                self.game.game_info.current_position = self.next_position()
+                continue
+            ## get the action from the player
+            action = self.request_action(player, betting_dct)
+            if action['action'] not in ['check', 'fold']:
+                self.game.game_info.check_available = False
+                betting_dct[curr_position] += deepcopy(action['amount'])
+            # update the action history with the players action
+            street = self.game.game_info.current_street
+            history = self.game.game_info.action_history[street]
+            history.append(action)
+            ## change to next position
+            self.game.game_info.current_position = self.next_position()
+            ## if player folds, remove him from betting dict
+            if action['action'] == 'fold':
+                del betting_dct[curr_position]
+            LOG.debug(f'Current position={player.position}, action={action["action"]}, '
+                      f'amount= {action["amount"]}')
 
     def get_playing(self):
         """
@@ -706,9 +753,14 @@ class Table:
         winning_hands = []
         for i in range(n):
             LOG.info(f'playing game {i + 1} of {n}')
-            g = self.play_game()
-            winning_hands.append(g.game_info.winner)
-            self.reset_game()
+            try:
+                g = self.play_game()
+                winning_hands.append(g.game_info.winner)
+                self.reset_game()
+            except LessThan3PlayersError:
+                LOG.info('Game ended as less than 3 players are still playing')
+                break
+
         return winning_hands
 
     def take_small_blind(self):

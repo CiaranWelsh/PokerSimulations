@@ -408,9 +408,11 @@ class TableTests(unittest.TestCase):
         self.assertTrue(winner['winner'])
 
     def test_play_batch_games(self):
-        p = self.p
+        p = [Player(name='player{}'.format(i), stack=500,
+                    position=self.positions[i]) for i in range(1, 9)]
+        p = Players(p)
         t = Table(name='super_poker', players=p)
-        winners = t.play_batch(1)
+        winners = t.play_batch(10)
         # for i in winners:
         #     print(i)
         # h = game.game_info.action_history
@@ -420,6 +422,7 @@ class TableTests(unittest.TestCase):
 
         ## at the start of every street, has_checked needs to be turned to False
 
+        ##todo reset player status end of round
         ##todo ensure small and big blinds all check to the same amount of money
         ##todo ensure betting continues until all playrs have bet the same amount via calling or folding
         ##todo ensure betting continues until all playrs have bet the same amount via calling or folding
