@@ -271,6 +271,8 @@ class Player:
             'status': 'folded'}
 
     def call(self, amount):
+        if amount is None:
+            raise ValueError('Cannot call "None"')
         if self.stack - amount < 0:
             logging.info('Not enough money to call. Going all in.')
             amount = self.stack
@@ -284,29 +286,43 @@ class Player:
         }
 
     def raise_(self, amount):
-        if self.stack - amount < 0:
+        action = 'raise'
+        if amount >= self.stack:
             logging.info(f'Not enough money to raise by '
                          f'{amount}. Going all in.')
             amount = self.stack
+            action = 'all-in'
         self.stack -= amount
         return {
             'name': self.name,
             'position': self.position,
-            'action': 'raise',
+            'action': action,
             'amount': amount,
             'status': 'playing'
         }
 
-    def take_turn(self, available, amount=None, probs=None):
+    def take_turn(self, available, betting_dct, bb, probs=None):
+        if not isinstance(bb, float):
+            raise ValueError('bb arg should be of type float not "{}"'.format(type(bb)))
         choice = numpy.random.choice(available, p=probs)
-        amount = 0.2
-        assert choice in ['check', 'call', 'raise', 'fold', 'raise_']
+        assert choice in ['check', 'call', 'raise', 'fold', 'all-in']
+        amount_to_call = max(betting_dct.values()) - betting_dct[self.position]
+        amount_to_raise = max(betting_dct.values()) + bb*1
+
+        if amount_to_call == 0 and choice == 'call':
+            choice == 'check'
+
+        if amount_to_call >= self.stack or amount_to_raise >= self.stack:
+            choice = 'all-in'
+
         if choice == 'check':
             return self.check()
         elif choice == 'call':
-            return self.call(amount)
+            return self.call(amount_to_call)
         elif choice == 'raise':
-            return self.raise_(amount)
+            return self.raise_(amount_to_raise)
+        elif choice == 'all-in':
+            return self.raise_(self.stack)
         elif choice == 'fold':
             return self.fold()
         else:
@@ -548,6 +564,7 @@ class Table:
             hand = Hand(hole_cards=player.cards, community_cards=self.game.game_info.community_cards)
             hands[pos] = hand.eval()
 
+        winner = {k: v for k, v in hands.items() if v == max(list(hands.values()))}
         showdown = self.game.game_info.action_history['showdown']
         for pos, player in self.game.players.items():
             if player.status in ['folded', 'Empty']:
@@ -555,7 +572,7 @@ class Table:
             showdown.append({
                 'name': player.name,
                 'hand': hands[pos],
-                'winner': True if max(hands) == pos else False
+                'winner': True if list(winner.keys())[0] == pos else False
             })
 
         return self.game
@@ -583,39 +600,43 @@ class Table:
 
         for street in streets:
             self.game = street()
+            LOG.debug(f'Street: {self.game.game_info.current_street}')
             ##reset the has_checked flag for current street
             self.game.game_info.check_available = False
             count = 0
 
             ## is it possible to iterate over amounts paid in and work
-            ## from that? 
-            while count != len(self.game.players):
-                print(count)
+            ## from that?
+            betting_dct = {k: 0 for k, v in self.game.players.items() if v.status
+                           not in ['sitting-out', 'folded', 'Empty', 'all-in']}
+            ## account for blinds
+            if self.game.game_info.current_street == 'preflop':
+                betting_dct['sb'] = self.game.game_info.stakes[0]
+                betting_dct['bb'] = self.game.game_info.stakes[1]
+            while len(list(set(betting_dct.values()))) != 1:
                 ## get the position of the player who's turn it is
                 curr_position = self.game.game_info.current_position
                 player = self.game.players[curr_position]
                 ## ignore empty, sitting out and folded players
-                if player.status in ['Empty', 'sitting-out', 'folded']:
-                    count += 1
+                if player.status in ['Empty', 'sitting-out', 'folded', 'all-in']:
                     self.game.game_info.current_position = self.next_position()
                     continue
                 ## get the action from the player
-                action = self.request_action(player)
+                action = self.request_action(player, betting_dct)
                 if action['action'] not in ['check', 'fold']:
                     self.game.game_info.check_available = False
+                    betting_dct[curr_position] += deepcopy(action['amount'])
                 # update the action history with the players action
                 street = self.game.game_info.current_street
                 history = self.game.game_info.action_history[street]
                 history.append(action)
                 ## change to next position
                 self.game.game_info.current_position = self.next_position()
-                ## add to count
-                count += 1
-                ## if raise, the other players that are in need to call
-                ## so we subtract that number from count
-                # if action['action'] == 'raise':
-                #     count = len(self.get_playing())
-                #     print('new count starting at ,', count)
+                ## if player folds, remove him from betting dict
+                if action['action'] == 'fold':
+                    del betting_dct[curr_position]
+                LOG.debug(f'Current position={player.position}, action={action["action"]}, '
+                          f'amount= {action["amount"]}')
 
             if self.game.game_info.current_street != 'river':
                 self.game = self.next_street()
@@ -627,7 +648,11 @@ class Table:
             # todo make sure winner gets paid
             # winner = self.game.game_info.action_history['showdown']  # ['winner']
             # self.players[winner].stack += self.game.game_info.pot
-
+        LOG.debug(f'winner is: {self.game.game_info["winner"]["name"]} with {self.game.game_info["winner"]["hand"]}')
+        LOG.debug(f'\tother players had:')
+        for pl in self.game.game_info.action_history['showdown']:
+            ## account for case where everybody folds
+            LOG.debug(f'\t\t{pl["name"]}, hand:{pl["hand"]}')
         return self.game
 
     def get_playing(self):
@@ -638,7 +663,7 @@ class Table:
         """
         return {k: v for k, v in self.game.players.items() if v.status == 'playing'}
 
-    def request_action(self, player):
+    def request_action(self, player, betting_dct):
         """
         I think there is a problem with ordering. We need a different or a copy
         of the pot for each round and player so that we can keep track of the evolution of
@@ -646,13 +671,13 @@ class Table:
         Returns:
 
         """
-
+        bb = self.game.game_info.stakes[1]
         ## if the 'has_checked' flag is True, all players before have checked and we also have the option to check
         if self.game.game_info.check_available:
-            action = player.take_turn(self.game.action_set_with_check)
+            action = player.take_turn(self.game.action_set_with_check, betting_dct, bb)
         else:
             ## if not, then we remove the option to check
-            action = player.take_turn(self.game.action_set_without_check)
+            action = player.take_turn(self.game.action_set_without_check, betting_dct, bb)
         ##
         if action['amount'] is not None:
             self.game.game_info.pot += action['amount']
@@ -682,7 +707,6 @@ class Table:
         for i in range(n):
             LOG.info(f'playing game {i + 1} of {n}')
             g = self.play_game()
-            print(g)
             winning_hands.append(g.game_info.winner)
             self.reset_game()
         return winning_hands

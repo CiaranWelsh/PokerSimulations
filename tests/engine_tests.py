@@ -410,9 +410,9 @@ class TableTests(unittest.TestCase):
     def test_play_batch_games(self):
         p = self.p
         t = Table(name='super_poker', players=p)
-        winners = t.play_batch(10)
-        for i in winners:
-            print(i)
+        winners = t.play_batch(1)
+        # for i in winners:
+        #     print(i)
         # h = game.game_info.action_history
         # for i in h:
         #     print(i, h[i])
