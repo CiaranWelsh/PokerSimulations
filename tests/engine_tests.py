@@ -412,7 +412,7 @@ class TableTests(unittest.TestCase):
                     position=self.positions[i]) for i in range(1, 9)]
         p = Players(p)
         t = Table(name='super_poker', players=p)
-        winners = t.play_batch(10)
+        winners = t.play_batch(2)
         # for i in winners:
         #     print(i)
         # h = game.game_info.action_history
@@ -422,11 +422,6 @@ class TableTests(unittest.TestCase):
 
         ## at the start of every street, has_checked needs to be turned to False
 
-        ##todo reset player status end of round
-        ##todo ensure small and big blinds all check to the same amount of money
-        ##todo ensure betting continues until all playrs have bet the same amount via calling or folding
-        ##todo ensure betting continues until all playrs have bet the same amount via calling or folding
-        ##todo change the condition in play_game from when number of actions equals number of players to when all players have to the same amount of money in the pot
 
 
 class RotatePositionTests(unittest.TestCase):
@@ -485,6 +480,7 @@ class RotatePositionTests(unittest.TestCase):
         expected = 'Empty'
         self.assertNotEqual(expected, t.players['bb'].status)
 
+#todo enable controlling the game play via a script in order to test all potential situations.
 
 if __name__ == '__main__':
     unittest.main()

@@ -12,7 +12,7 @@ from datetime import datetime
 
 from twiggy import quick_setup as QUICK_SETUP
 from twiggy import log as LOG
-
+from .io import PokerStarsReader, PokerStarsWriter
 QUICK_SETUP()
 
 POSITIONS = {
@@ -40,6 +40,7 @@ BETTING_ORDER = ['sb', 'bb', 'utg1', 'utg2',
 
 class LessThan3PlayersError(Exception):
     pass
+
 
 class Card:
     def __init__(self, rank, suit):
@@ -330,6 +331,13 @@ class Player:
         else:
             raise ValueError
 
+    def isempty(self):
+        if self.status == 'Empty':
+            return True
+
+        else:
+            return False
+
 
 class EmptySeat(Player):
     name = 'Empty'
@@ -409,11 +417,16 @@ class Table:
 
     """
 
-    def __init__(self, players, game=None, stakes=(0.05, 0.10), name='tumbleweed', **kwargs):
+    def __init__(self, players, game=None, stakes=(0.05, 0.10),
+                 name='tumbleweed', script=None, reader=PokerStarsReader,
+                 writer=PokerStarsWriter, **kwargs):
         self.name = name
         self.players = players
         self.stakes = stakes
         self.game = game
+        self.script = script
+        self.reader = reader
+        self.writer = writer
         self.kwargs = kwargs
 
         if self.game is None:
@@ -582,11 +595,14 @@ class Table:
 
         return self.game
 
-    def play_game(self, to='river'):
+    def play_game(self, to='river', script=None):
 
         # todo introduce a 'which' argument to only play single street. Mutual exclusive with 'to'. ensure we dont play out of correct order
-
+        # todo enable replaying a game from a script
+        # todo include a recorder argument which can be PokerStars, or another Vender. For writing to file
         # post blinds
+
+        print(self.writer)
         self.take_small_blind()
         self.take_big_blind()
 
@@ -602,7 +618,6 @@ class Table:
                        self.deal_turn, self.deal_river]
         else:
             raise ValueError
-        print(self.players)
         for pos, pl in self.players.items():
             if pl.status == 'Empty':
                 continue
@@ -618,13 +633,10 @@ class Table:
 
         for street in streets:
             self.game = street()
-            LOG.debug(f'Street: {self.game.game_info.current_street}, method called: '
-                      f'{street.__class__.__name__} ')
+            LOG.debug(f'Street: {self.game.game_info.current_street}')
             ##reset the has_checked flag for current street
             self.game.game_info.check_available = False
 
-            ## is it possible to iterate over amounts paid in and work
-            ## from that?
             betting_dct = {k: 0 for k, v in self.game.players.items() if v.status
                            not in ['sitting-out', 'folded', 'Empty', 'all-in']}
             ## account for blinds
@@ -637,9 +649,9 @@ class Table:
                 LOG.warning('1 player left')
                 winner = self.get_playing()
                 win_pos = list(winner.keys())[0]
-                print('winner', winner, win_pos)
-                print('winning pos == {}'.format(win_pos))
-                print(pos, winner[pos])
+                LOG.debug(f'winner is {winner}')
+                # print('winning pos == {}'.format(win_pos))
+                # print(pos, winner[pos])
                 self.game.game_info['winner'] = {
                     'position': pos,
                     'name': winner[pos].name,
@@ -677,7 +689,14 @@ class Table:
         return self.game
 
     def _game_play(self, betting_dct):
-        while len(list(set(betting_dct.values()))) != 1:
+        LOG.warning(f'playing {self.game.game_info.current_street}')
+        print('betting dct', betting_dct.values())
+        zero_cond = all(v == 0 for v in betting_dct.values())
+        len_cond = len(list(set(betting_dct.values()))) == 1
+        print('zero', zero_cond)
+        print('len', len_cond)
+        print('comb', zero_cond and len_cond)
+        while len(list(set(betting_dct.values()))) != 1 or all(v == 0 for v in betting_dct.values())  :
             ## get the position of the player who's turn it is
             curr_position = self.game.game_info.current_position
             player = self.game.players[curr_position]
@@ -685,8 +704,13 @@ class Table:
             if player.status in ['Empty', 'sitting-out', 'folded', 'all-in']:
                 self.game.game_info.current_position = self.next_position()
                 continue
+
+            ## in a scripted game, this action variable is predetermined.
+
             ## get the action from the player
             action = self.request_action(player, betting_dct)
+
+
             if action['action'] not in ['check', 'fold']:
                 self.game.game_info.check_available = False
                 betting_dct[curr_position] += deepcopy(action['amount'])
@@ -793,6 +817,26 @@ class Table:
 
     def __str__(self):
         return f'Table(name="{self.name}")'
+
+
+class ReplayGame(Table):
+
+    def __init__(self, history, reader=PokerStarsReader):
+        self.history = history
+        self.reader = reader
+
+        # print(self.reader(self.history))
+        '''
+        ideas: 
+            could rig the deck to the cards that are needed?
+            could try reading line by line
+            use a reader class to collect the information needednot empty, 
+            we read from it instead
+            
+            in game, if action history slot is 
+        
+        '''
+
 
 
 class Game(Bunch):
