@@ -1,7 +1,8 @@
-import os, glob
 import unittest
 from poker_simulations.engine import *
-from inspect import getmembers
+
+from poker_simulations.player import Player, EmptySeat, Slave, Players
+from .io_tests import ExampleHands
 
 
 class CardTests(unittest.TestCase):
@@ -70,6 +71,12 @@ class DeckTests(unittest.TestCase):
         len_after = len(d)
         self.assertNotEqual(len_before, len_after)
 
+    def test_place(self):
+        card = Card(5, 'D')
+        d = Deck()
+        d = d.place(0, card)
+        self.assertEqual(d[0], card)
+
 
 class PlayerTests(unittest.TestCase):
     def setUp(self):
@@ -96,6 +103,72 @@ class EmptySeatTests(unittest.TestCase):
     def test_stack(self):
         e = EmptySeat('co')
         self.assertEqual(0, e.stack)
+
+
+class SlaveTests(unittest.TestCase):
+    def setUp(self):
+        self.line = {
+            'Jamex19': [
+                {'player': 'Jamex19',
+                 'action': 'raises',
+                 'amount': 0.5,
+                 'pot': 0.75},
+                {'player': 'Jamex19',
+                 'action': 'bets',
+                 'amount': '0.90',
+                 'pot': None},
+                {'player': 'Jamex19',
+                 'action': 'calls',
+                 'amount': '1.65',
+                 'pot': None},
+                {'player': 'Jamex19',
+                 'action': 'checks',
+                 'amount': None,
+                 'pot': None},
+                {'player': 'Jamex19',
+                 'action': 'calls',
+                 'amount': '3.25',
+                 'pot': None}
+            ]}
+
+    def test_instantiation(self):
+        s = Slave(position='co', stack=500, line=self.line,
+                  name='slavador')
+        self.assertIsInstance(s, Slave)
+
+    def test_(self):
+        s = Slave(position='co', stack=500, line=self.line,
+                  name='Jamex19')
+        p = Players.full_ring()
+        p['btn'] = s
+        t = Table(p)
+        t.play_game()
+
+        print(t.game)
+
+        ##maybe i need to emulate all the players
+        ##actions, not just the one i'm following.
+
+    def test__(self):
+        ##todo what about subclassing table and literally rigging the deck
+
+        # todo extract lines must be changed so keys are position
+        eh = ExampleHands().hand5_game_end_at_showdown()
+        game = Game.from_parser(eh)
+
+        t = Table(game=game, players=game.players)
+        # for pos, pl in game.players.items():
+        #     print(pos, pl)
+        print(t.play_game())
+        # todo change extract i
+        # p = Players()
+        # print(game.players)
+        # for pos, line in game.extract_lines().items():
+        #     print(pos, line)
+        #     line = line[0]
+        #     p[pos] = Slave(position=pos, name=line['name'],
+        #                    )
+        # # print(p)
 
 
 class PlayersTest(unittest.TestCase):
@@ -304,6 +377,53 @@ pot: 0"""
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='river')
 
+    def test_extract_line(self):
+        eh = ExampleHands()
+        g = Game.from_parser(eh.hand5_game_end_at_showdown())
+        # print(g.action_history)
+        lines = g.extract_lines()
+        print(lines)
+        self.assertEqual(lines['Jamex19'][0]['action'], 'raises')
+
+    def test_positions(self):
+        eh = ExampleHands()
+        g = Game.from_parser(eh.hand5_game_end_at_showdown())
+        self.assertEqual(g.positions()['shelepova'], 'btn')
+
+    def test_setattr(self):
+        p = self.p
+        t = Table(name='super_poker', players=p)
+        game = t.play_game(to='river')
+        self.assertNotEqual(game.action_history['preflop'], [])
+
+    # def test_mind_control(self):
+    #     # make sure that test mind control works.
+    #     # Then modify the player class action method such that
+    #     # when mind control is not empty, they player is forced to
+    #     # act in a predefined way
+    #     eh = ExampleHands()
+    #     g = Game.from_parser(eh.hand5_game_end_at_showdown())
+    #     self.assertEqual('calls', g.players['utg1'].mind_control[2]['action'])
+
+
+class ParsePokerstarsTests(unittest.TestCase):
+
+    def setUp(self):
+        self.eh = ExampleHands()
+
+    def test(self):
+        '''
+
+        can I somehow use the game class to put actions in the plsyers mouth?
+
+
+        Returns:
+
+        '''
+        g = Game.from_parser2(self.eh.hand5_game_end_at_showdown())
+        # t = Table(game=g, players=g.players)
+        # print(t.replay_game())
+
 
 class TableTests(unittest.TestCase):
     positions = {
@@ -361,7 +481,6 @@ class TableTests(unittest.TestCase):
         game = t.play_game(to='preflop')
         for i in game.players:
             if game.players[i].name != 'Empty':
-                print(game.players[i].cards)
                 self.assertEqual(2, len(game.players[i].cards))
 
     def test_deal_flop(self):
@@ -403,7 +522,6 @@ class TableTests(unittest.TestCase):
         ## have put into the pot is the same. If not we continue
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='river')
-        print(game)
         winner = t.get_winner(t.game)
         self.assertTrue(winner['winner'])
 
@@ -422,6 +540,24 @@ class TableTests(unittest.TestCase):
 
         ## at the start of every street, has_checked needs to be turned to False
 
+class RiggedTableTests(unittest.TestCase):
+
+    def setUp(self):
+        pass
+
+    def test_correct_cards(self):
+        eh = ExampleHands().hand5_game_end_at_showdown()
+        game = Game.from_parser(eh)
+        rt = RiggedTable(game)
+        ex = ['5S', '4D', '2H', '4S']
+        self.assertListEqual(ex, rt.deck[:4])
+
+    def test_deck_is_right_len(self):
+        eh = ExampleHands().hand5_game_end_at_showdown()
+        game = Game.from_parser(eh)
+        rt = RiggedTable(game)
+        ex = ['5S', '4D', '2H', '4S']
+        self.assertEqual(52, len(rt.deck))
 
 
 class RotatePositionTests(unittest.TestCase):
@@ -480,7 +616,8 @@ class RotatePositionTests(unittest.TestCase):
         expected = 'Empty'
         self.assertNotEqual(expected, t.players['bb'].status)
 
-#todo enable controlling the game play via a script in order to test all potential situations.
+
+# todo enable controlling the game play via a script in order to test all potential situations.
 
 if __name__ == '__main__':
     unittest.main()

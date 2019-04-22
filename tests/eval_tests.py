@@ -1,7 +1,9 @@
-import os, glob
 import unittest
 from poker_simulations.engine import *
 from inspect import getmembers
+
+from poker_simulations.eval import Hand, RoyalFlush, StraightFlush, FourOfAKind, FullHouse, Flush, Straight, \
+    ThreeOfAKind, TwoPair, Pair, HighCard
 
 
 class TestHands(object):

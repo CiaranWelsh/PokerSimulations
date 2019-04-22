@@ -24,21 +24,20 @@ class PokerStarsParser:
     _re_number_of_players = '(\d*)-max'
     _re_head_data = "Table[(\s\S)]*\*\*\* HOLE CARDS \*\*\*"
     _re_player_info = "Seat (\d*): (.*) \(\$([\d.]*)"
-    _re_preflop_actions = r'\*\*\* HOLE CARDS \*\*\*[\s\S]*\*\*\*'
-    _re_flop_actions = r'\*\*\* FLOP \*\*\*[\s\S]*\*\*\*'
-    _re_turn_actions = r'\*\*\* TURN \*\*\*[\s\S]*\*\*\*'
-    _re_river_actions = r'\*\*\* RIVER \*\*\*[\s\S]*\*\*\*'
-    _re_showdown = r'\*\*\* SHOW DOWN \*\*\*[\s\S]*\*\*\*'
+    # _re_preflop_actions = r'\*\*\* HOLE CARDS \*\*\*[\s\S]*\*\*\*'
+    _re_preflop_actions = r'\*\*\* HOLE CARDS \*\*\*[\s\S]*?\*\*\* (?:FLOP|SUMMARY)'
+    _re_flop_actions = r'\*\*\* FLOP \*\*\*[\s\S]*?\*\*\* (?:TURN|SUMMARY)'
+    _re_turn_actions = r'\*\*\* TURN \*\*\*[\s\S]*?\*\*\* (?:RIVER|SUMMARY)'
+    _re_river_actions = r'\*\*\* RIVER \*\*\*[\s\S]*?\*\*\* SUMMARY'
+    _re_showdown = r'\*\*\* SHOW DOWN \*\*\*[\s\S]*?\*\*\*'
     _re_summary = r'\*\*\* SUMMARY[\S\s]*'
     _re_flop = r'\*\*\* FLOP \*\*\*(.*)'
-    _re_turn = r'\*\*\* TURN \*\*\*(.*)'
-    _re_river = r'\*\*\* RIVER \*\*\*(.*)'
-
-    # _re_winner = r'(\w*) collected.*\$(\d*.\d*).*'
+    _re_turn = r'\*\*\* TURN \*\*\* \[.*\].*\[(.*)\]'
+    _re_river = r'\*\*\* RIVER \*\*\* \[.*\].*\[(.*)\]'
+    _re_winner = r'(\w*) collected.*\$(\d*.\d*).*'
 
     def __init__(self, hand):
         self.hand = hand
-
         self.game_type = self._game_type()
 
     def _game_type(self):
@@ -60,18 +59,21 @@ class PokerStarsParser:
             showdown = True
 
         if showdown and flop and turn and river:
-            return self._valid_game_types[5]
+            return 5
         elif flop and turn and river:
-            return self._valid_game_types[4]
+            return 4
         elif flop and turn and not river:
-            return self._valid_game_types[3]
+            return 3
         elif flop and not turn and not river:
-            return self._valid_game_types[2]
+            return 2
         elif not flop and not turn and not river:
-            return self._valid_game_types[1]
+            return 1
 
     def parse_hand(self):
         pass
+
+    def datetime(self):
+        return re.findall(self._re_datetime, self.hand)[0]
 
     def vendor(self):
         return re.findall(self._re_vendor, self.hand)[0]
@@ -94,7 +96,7 @@ class PokerStarsParser:
 
     def player_info(self):
         info = re.findall(self._re_head_data, self.hand)[0]
-        info = info.split('\n')[1:-5]  # remove first and last few lines
+        info = info.split('\n')[1:-3]  # remove first and last few lines
         dct = OrderedDict()
         for i in info:
             seat, player, cash = re.findall(self._re_player_info, i)[0]
@@ -109,15 +111,17 @@ class PokerStarsParser:
         :param regex:
         :return:
         """
-        print(self.hand)
         actions = re.findall(regex, self.hand)
-        print(actions)
-
+        if len(actions) != 1:
+            raise ValueError('regex has matched more than 1 item. Problem. ')
+        actions = actions[0]
         actions = actions.split('\n')[1:-1]
-        dct = OrderedDict()
+        l = []
         for action in actions:
-            player = re.findall('(\w*):', action)[0].strip()
-            act = re.findall('\w*: (\w*)', action)[0].strip()
+            player = re.findall('(\w*).', action)[0].strip()
+            act = re.findall('(calls)|(disconnected)|(timed out)|'
+                             '(raises)|(checks)|(folds)|(bets)', action)
+            act = [i for i in act[0] if i != ''][0]
             ##default for check and fold
             amount = pot = None
             if act == 'raises':
@@ -126,12 +130,20 @@ class PokerStarsParser:
                 amount = float(amount)
                 pot = float(pot)
 
-            elif act == 'call':
-                amount = re.findall('\$(\d*.\d*)', action)
+            elif act in ['calls', 'bets']:
+                amount = re.findall('\$(\d*.\d*)', action)[0]
 
-            dct[player] = (act, amount, pot)
 
-        return dct
+            elif act in ['folds', 'checks', 'timed out',
+                         'disconnected']:
+                pass
+
+            else:
+                raise ValueError(f'"{act}" action has not been accounted for')
+
+            l.append({'player': player, 'action': act, 'amount': amount, 'pot': pot})
+
+        return l
 
     def flop(self):
         if self.game_type >= 2:

@@ -412,7 +412,15 @@ class PokerStarsParserTestsHand5(PokerStarsParserTestsHand4):
         self.assertNotEqual([], actions)
 
 
-class o:
+class PokerStarsParserTests(unittest.TestCase):
+
+    def setUp(self):
+        self.hands = ExampleHands()
+
+    def test1(self):
+        p = PokerStarsParser(self.hands.hand5_game_end_at_showdown())
+        print(p.parse_hand())
+
     def test_game_id(self):
         h = PokerStarsParser(self.hand)
         self.assertEqual(197832949072, h.game_id())
@@ -476,51 +484,3 @@ class o:
         h = PokerStarsParser(self.hand)
         self.assertEqual(0.15, h.winner()['cash'])
 
-
-class PokerStarsRecorderTests(unittest.TestCase):
-
-    def setUp(self):
-        self.hand = """PokerStars Hand #197832975696:  Hold'em No Limit ($0.10/$0.25 USD) - 2019/03/06 15:01:20 ET
-Table 'Achilles' 9-max Seat #8 is the button
-Seat 1: Optimistic21 ($25 in chips)
-Seat 2: $$$kirillr80 ($8.74 in chips)
-Seat 3: The Scandalist ($9 in chips)
-Seat 5: maxymo722 ($32.32 in chips)
-Seat 6: drscoot644 ($22.70 in chips)
-Seat 7: é=mc² ($25 in chips)
-Seat 8: bvbene211 ($19.65 in chips)
-Seat 9: XOKCABAP3 ($19.25 in chips)
-XOKCABAP3: posts small blind $0.10
-Optimistic21: posts big blind $0.25
-TregIvan: sits out
-*** HOLE CARDS ***
-$$$kirillr80: folds
-The Scandalist: folds
-maxymo722: folds
-drscoot644: folds
-é=mc²: folds
-bvbene211: raises $0.50 to $0.75
-XOKCABAP3: folds
-Optimistic21: folds
-Uncalled bet ($0.50) returned to bvbene211
-bvbene211 collected $0.60 from pot
-bvbene211: doesn't show hand
-*** SUMMARY ***
-Total pot $0.60 | Rake $0
-Seat 1: Optimistic21 (big blind) folded before Flop
-Seat 2: $$$kirillr80 folded before Flop (didn't bet)
-Seat 3: The Scandalist folded before Flop (didn't bet)
-Seat 5: maxymo722 folded before Flop (didn't bet)
-Seat 6: drscoot644 folded before Flop (didn't bet)
-Seat 7: é=mc² folded before Flop (didn't bet)
-Seat 8: bvbene211 (button) collected ($0.60)
-Seat 9: XOKCABAP3 (small blind) folded before Flop
-"""
-        p = [Player(name='player{}'.format(i), stack=25.0,
-                    position=POSITIONS[i]) for i in range(9)]
-        self.p = Players(p)
-
-    def test(self):
-        # self.t = Table(self.p, reader=PokerStarsWriter)
-        self.t = ReplayGame(self.hand)
-        print(self.t)

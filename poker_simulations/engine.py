@@ -1,18 +1,22 @@
-import os, glob
-from collections import OrderedDict, Counter, deque
+from collections import OrderedDict, deque
 from random import shuffle
 from copy import deepcopy
-import logging, numpy
+
+from poker_simulations.eval import Hand, RoyalFlush, StraightFlush, FullHouse, Flush, Straight, ThreeOfAKind, TwoPair, \
+    Pair, HighCard
+from poker_simulations.player import Player, EmptySeat, Slave, Players
 from .bunch import Bunch
 from ruamel.yaml import YAML as ryaml
 import sys
 from io import StringIO
 from contextlib import redirect_stdout
 from datetime import datetime
+from .io import PokerStarsParser
 
 from twiggy import quick_setup as QUICK_SETUP
 from twiggy import log as LOG
 from .io import PokerStarsReader, PokerStarsWriter
+
 QUICK_SETUP()
 
 POSITIONS = {
@@ -49,10 +53,9 @@ class Card:
         self.do_checks()
 
     def __str__(self):
-        if isinstance(self.rank, str):
-            return "{}{}".format(self.rank, self.suit)
-        else:
-            return "{}{}".format(self.rank, self.suit)
+        return "{}{}".format(
+            self.rank.upper() if isinstance(self.rank, str) else self.rank,
+            self.suit.upper())
 
     def __repr__(self):
         return self.__str__()
@@ -96,10 +99,10 @@ class Card:
 
     def do_checks(self):
         if self.rank not in ['A', 'K', 'Q', 'J'] + list(range(2, 11)):
-            raise ValueError('"num" should be between A, K, Q, J or a number from 2 to 10. Got "{}"'.format(self.num))
+            raise ValueError('"rank" should be between A, K, Q, J or a number from 2 to 10. Got "{}"'.format(self.rank))
 
-        if self.suit not in ['H', 'D', 'S', 'C']:
-            raise ValueError('"suit" should be one of H, D, S or C. Got "{}"'.format(self.suit))
+        if self.suit.lower() not in ['h', 'd', 's', 'c']:
+            raise ValueError('"suit" should be one of h, d, s, c. Got "{}"'.format(self.suit))
 
     @property
     def rank_order(self):
@@ -128,8 +131,14 @@ class Deck:
         self.cards = self.create()
         self.shuffle()
 
+    def __next__(self):
+        return self.cards.__next()
+
+    def __iter__(self):
+        return self.cards.__iter__()
+
     def __str__(self):
-        return str(self.cards)
+        return f'{self.__class__.__name__}({self.cards})'
 
     def __len__(self):
         return len(self.cards)
@@ -150,6 +159,15 @@ class Deck:
     def __hash__(self):
         """Overrides the default implementation"""
         return hash(tuple(sorted(self.__dict__.items())))
+
+    def __getitem__(self, item):
+        return self.cards.__getitem__(item)
+
+    def __setitem__(self, key, value):
+        return self.cards.__setitem__(key, value)
+
+    def __delitem__(self, key):
+        return self.cards.__delitem__(key)
 
     def create(self):
         cards = deque()
@@ -172,243 +190,12 @@ class Deck:
                 self.cards.remove(i)
                 return i
 
-
-class Player:
-    """
-    How can I make a player intelligent?
-
-    #todo Give player stats
-
-
-    """
-    valid_status = ['playing', 'not-playing', 'folded', 'Empty']
-
-    def __init__(self, name, stack,
-                 position, cards=[],
-                 status='playing'):
-        self.name = name
-        self.stack = stack
-        self.position = position
-        self.status = status
-        self.cards = deepcopy(cards)
-        self.hole_cards_hidden = True
-
-        if self.status not in self.valid_status:
-            raise ValueError
-
-    def __str__(self):
-        return f"Player(name=\"{self.name}\", stack={self.stack}, position=\"{self.position}\", status=\"{self.status}\")"
-
-    def __repr__(self):
-        return self.__str__()
-
-    def bet(self, amount):
-        self.stack -= amount
-        return amount
-
-    def stats(self):
-        """
-        Will eventually have a bunch of stats that I'll be able
-        to call up on the players.
-        Returns:
-
-        """
-
-    def give_card(self, card):
-        if len(self.cards) > 2:
-            raise ValueError(f'A person can hold a maximum of two cards. '
-                             f'Player "{self.name}" has "{len(self.cards)}" '
-                             f'({self.cards})')
-        self.cards.append(card)
-
-    def remove_cards(self):
-        self.cards = []
-
-    def __gt__(self, other):
-        if not isinstance(other, Player):
-            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
-
-        return POSITIONS_INVERTED[self.position] > POSITIONS_INVERTED[other.position]
-
-    def __lt__(self, other):
-        if not isinstance(other, Player):
-            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
-
-        return POSITIONS_INVERTED[self.position] < POSITIONS_INVERTED[other.position]
-
-    def __ge__(self, other):
-        if not isinstance(other, Player):
-            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
-        return POSITIONS_INVERTED[self.position] >= POSITIONS_INVERTED[other.position]
-
-    def __le__(self, other):
-        if not isinstance(other, Player):
-            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
-        return POSITIONS_INVERTED[self.position] <= POSITIONS_INVERTED[other.position]
-
-    def __eq__(self, other):
-        if not isinstance(other, Player):
-            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
-        return POSITIONS_INVERTED[self.position] == POSITIONS_INVERTED[other.position]
-
-    def __ne__(self, other):
-        if not isinstance(other, Player):
-            raise TypeError('Cannot make comparison between Player and "{}"'.format(type(other)))
-        return POSITIONS_INVERTED[self.position] != POSITIONS_INVERTED[other.position]
-
-    def check(self):
-        return {
-            'name': self.name,
-            'action': 'check',
-            'position': self.position,
-            'amount': None,
-            'status': 'playing'
-        }
-
-    def fold(self):
-        return {
-            'name': self.name,
-            'position': self.position,
-            'action': 'fold',
-            'amount': None,
-            'status': 'folded'}
-
-    def call(self, amount):
-        if amount is None:
-            raise ValueError('Cannot call "None"')
-        if self.stack - amount < 0:
-            logging.info('Not enough money to call. Going all in.')
-            amount = self.stack
-        self.stack -= amount
-        return {
-            'name': self.name,
-            'position': self.position,
-            'action': 'call',
-            'amount': amount,
-            'status': 'playing'
-        }
-
-    def raise_(self, amount):
-        action = 'raise'
-        if amount >= self.stack:
-            logging.info(f'Not enough money to raise by '
-                         f'{amount}. Going all in.')
-            amount = self.stack
-            action = 'all-in'
-        self.stack -= amount
-        return {
-            'name': self.name,
-            'position': self.position,
-            'action': action,
-            'amount': amount,
-            'status': 'playing'
-        }
-
-    def take_turn(self, available, betting_dct, bb, probs=None):
-        if not isinstance(bb, float):
-            raise ValueError('bb arg should be of type float not "{}"'.format(type(bb)))
-        choice = numpy.random.choice(available, p=probs)
-        assert choice in ['check', 'call', 'raise', 'fold', 'all-in']
-        amount_to_call = max(betting_dct.values()) - betting_dct[self.position]
-        amount_to_raise = max(betting_dct.values()) + bb * 1
-
-        if amount_to_call == 0 and choice == 'call':
-            choice == 'check'
-
-        if amount_to_call >= self.stack or amount_to_raise >= self.stack:
-            choice = 'all-in'
-
-        if choice == 'check':
-            return self.check()
-        elif choice == 'call':
-            return self.call(amount_to_call)
-        elif choice == 'raise':
-            return self.raise_(amount_to_raise)
-        elif choice == 'all-in':
-            return self.raise_(self.stack)
-        elif choice == 'fold':
-            return self.fold()
-        else:
-            raise ValueError
-
-    def isempty(self):
-        if self.status == 'Empty':
-            return True
-
-        else:
-            return False
-
-
-class EmptySeat(Player):
-    name = 'Empty'
-    stack = 0
-    status = 'Empty'
-
-    def __init__(self, position):
-        self.position = position
-        super().__init__(name=self.name, stack=self.stack, position=self.position, status=self.status)
-
-
-class Players:
-
-    def __init__(self, iterable):
-        self.num_players = len(iterable)
-
-        if isinstance(iterable, list):
-            iterable = {position: player for position, player in zip(
-                list(POSITIONS.values())[:self.num_players], iterable)}
-
-        for k in iterable:
-            if k not in POSITIONS.values():
-                raise ValueError(f'"{k}" is not a valid key for "Players".'
-                                 f' These are valid: {POSITIONS.values()}')
-
-        self.iterable = iterable
-
-        for pos in POSITIONS:
-            if POSITIONS[pos] not in self.iterable:
-                self.iterable[POSITIONS[pos]] = EmptySeat(POSITIONS[pos])
-
-    def __str__(self):
-        return self.iterable.__str__()
-
-    def __repr__(self):
-        return self.iterable.__repr__()
-
-    def __getitem__(self, item):
-        if isinstance(item, int):
-            item = POSITIONS[item]
-        if isinstance(item, Position):
-            item = str(item)
-        assert isinstance(item, str)
-        return self.iterable[item]
-
-    def __delitem__(self, key):
-        assert key in self.iterable
-        del self.iterable[key]
-
-    def items(self):
-        return self.iterable.items()
-
-    def __len__(self):
-        return len(self.iterable)
-
-    def __iter__(self):
-        return self.iterable.__iter__()
-
-    def __next__(self):
-        return self.iterable.__next__()
-
-    @staticmethod
-    def get_default_players():
-        seats = numpy.linspace(1, 9, num=9)
-        positions = numpy.linspace(1, 9, num=9)
-
-        shuffle(seats)
-        shuffle(positions)
-        p = [Player(name='player{}'.format(i), stack=1.0,
-                    seat=seats[i], position=POSITIONS[positions[i]]) for i in range(1, 9)]
-        return p
+    def place(self, position, card):
+        d = Deck()
+        deck = [i for i in self.cards if str(i) != str(card)]
+        deck.insert(position, card)
+        d.cards = deck
+        return d
 
 
 class Table:
@@ -433,7 +220,6 @@ class Table:
             self.game = self.create_game()
 
         self.deck = Deck()
-        self.deck.shuffle()
 
         for i in self.players:
             if not isinstance(self.players[i], Player):
@@ -477,8 +263,8 @@ class Table:
         return self.players
 
     def deal_preflop(self):
+        # todo: in parsing a hand. make sure that if we know a players hand, that players hole cards are assigned
         count = 0
-
         current_pos = 'btn'
         ## deal a maximum of 18 cards. Missing seats are skipped
         while count < 9 * 2:
@@ -493,20 +279,29 @@ class Table:
 
         return self.game
 
-    def deal_flop(self):
+    def deal_flop(self, cards=None):
         if not isinstance(self.game, Game):
             raise ValueError(f'game argument should be of type "Game" '
                              f'but got "{type(self.game)}" instead.')
 
-        flop = []
-        for i in range(3):
-            card = self.deck.pop()
-            flop.append(card)
+        if not isinstance(cards, list):
+            raise ValueError
+
+        if len(cards) != 3:
+            raise ValueError
+        if cards is not None:
+            flop = cards
+        else:
+            flop = []
+            for i in range(3):
+                card = self.deck.pop()
+                flop.append(card)
         self.game.game_info.community_cards += flop
-        assert len(self.game.game_info.community_cards) < 6
+        assert len(self.game.game_info.community_cards) < 6, "Got wrong number of communit cards: {}".format(
+            self.game.game_info.community_cards)
         return self.game
 
-    def deal_turn(self):
+    def deal_turn(self, card=None):
         if not isinstance(self.game, Game):
             raise ValueError(f'game argument should be of type "Game" '
                              f'but got "{type(self.game)}" instead.')
@@ -579,8 +374,6 @@ class Table:
             hand = Hand(hole_cards=player.cards, community_cards=self.game.game_info.community_cards)
             hands[pos] = hand.eval()
 
-        print('ahhands', hands)
-
         winner = {k: v for k, v in hands.items() if v == max(list(hands.values()))}
         showdown = self.game.game_info.action_history['showdown']
         for pos, player in self.game.players.items():
@@ -595,14 +388,13 @@ class Table:
 
         return self.game
 
-    def play_game(self, to='river', script=None):
+    def play_game(self, to='river', flop=None, turn=None, river=None):
 
         # todo introduce a 'which' argument to only play single street. Mutual exclusive with 'to'. ensure we dont play out of correct order
         # todo enable replaying a game from a script
         # todo include a recorder argument which can be PokerStars, or another Vender. For writing to file
         # post blinds
 
-        print(self.writer)
         self.take_small_blind()
         self.take_big_blind()
 
@@ -632,6 +424,16 @@ class Table:
             raise LessThan3PlayersError('Playing with less than 3 players is not yet supported')
 
         for street in streets:
+            # rigged_cards = None
+            # if street.__name__ == 'deal_flop' and flop is not None:
+            #     rigged_cards = flop
+            #
+            # elif street.__name__ == 'deal_turn' and turn is not None:
+            #     rigged_cards = turn
+            #
+            # elif street.__name__ == 'deal_river' and river is not None:
+            #     rigged_cards = river
+
             self.game = street()
             LOG.debug(f'Street: {self.game.game_info.current_street}')
             ##reset the has_checked flag for current street
@@ -645,13 +447,11 @@ class Table:
                 betting_dct['bb'] = self.game.game_info.stakes[1]
 
             ## account for everybody folding to one player
-            if len(self.get_playing()) == 1:
+            if len(self.get_those_still_playing()) == 1:
                 LOG.warning('1 player left')
-                winner = self.get_playing()
+                winner = self.get_those_still_playing()
                 win_pos = list(winner.keys())[0]
                 LOG.debug(f'winner is {winner}')
-                # print('winning pos == {}'.format(win_pos))
-                # print(pos, winner[pos])
                 self.game.game_info['winner'] = {
                     'position': pos,
                     'name': winner[pos].name,
@@ -660,8 +460,7 @@ class Table:
                 ## pay winner
                 self.players[self.game.game_info['winner']['position']].stack += self.game.game_info.pot
                 break
-            ## game play abstracted into a function
-            ## so that I can use break on inner loop and outer loop
+
             self._game_play(betting_dct)
 
             if self.game.game_info.current_street != 'river':
@@ -681,22 +480,12 @@ class Table:
                   f'{self.game.game_info["winner"]["hand"]}')
         LOG.debug(f'\tother players had:')
         for pl in self.game.game_info.action_history['showdown']:
-            # print(self.game.game_info['winnner'])
-            # if pl.position == self.players[self.game.game_info['winner']].position:
-            #     continue
-            ## account for case where everybody folds
             LOG.debug(f'\t\t{pl["position"]}, hand:{pl["hand"]}')
         return self.game
 
     def _game_play(self, betting_dct):
         LOG.warning(f'playing {self.game.game_info.current_street}')
-        print('betting dct', betting_dct.values())
-        zero_cond = all(v == 0 for v in betting_dct.values())
-        len_cond = len(list(set(betting_dct.values()))) == 1
-        print('zero', zero_cond)
-        print('len', len_cond)
-        print('comb', zero_cond and len_cond)
-        while len(list(set(betting_dct.values()))) != 1 or all(v == 0 for v in betting_dct.values())  :
+        while len(list(set(betting_dct.values()))) != 1 or all(v == 0 for v in betting_dct.values()):
             ## get the position of the player who's turn it is
             curr_position = self.game.game_info.current_position
             player = self.game.players[curr_position]
@@ -705,11 +494,8 @@ class Table:
                 self.game.game_info.current_position = self.next_position()
                 continue
 
-            ## in a scripted game, this action variable is predetermined.
-
             ## get the action from the player
             action = self.request_action(player, betting_dct)
-
 
             if action['action'] not in ['check', 'fold']:
                 self.game.game_info.check_available = False
@@ -726,7 +512,7 @@ class Table:
             LOG.debug(f'Current position={player.position}, action={action["action"]}, '
                       f'amount= {action["amount"]}')
 
-    def get_playing(self):
+    def get_those_still_playing(self):
         """
         get players that are still playing in this game
         Returns:
@@ -745,10 +531,10 @@ class Table:
         bb = self.game.game_info.stakes[1]
         ## if the 'has_checked' flag is True, all players before have checked and we also have the option to check
         if self.game.game_info.check_available:
-            action = player.take_turn(self.game.action_set_with_check, betting_dct, bb)
+            action = player.process_turn(self.game.action_set_with_check, betting_dct, bb)
         else:
             ## if not, then we remove the option to check
-            action = player.take_turn(self.game.action_set_without_check, betting_dct, bb)
+            action = player.process_turn(self.game.action_set_without_check, betting_dct, bb)
         ##
         if action['amount'] is not None:
             self.game.game_info.pot += action['amount']
@@ -819,24 +605,33 @@ class Table:
         return f'Table(name="{self.name}")'
 
 
-class ReplayGame(Table):
+class RiggedTable(Table):
 
-    def __init__(self, history, reader=PokerStarsReader):
-        self.history = history
-        self.reader = reader
+    def __init__(self, game, name='rigged', **kwargs):
+        super().__init__(players=game.players, stakes=game.stakes,
+                         # reader=game.reader, writer=game.writer,
+                         **kwargs)
+        print(self.deck, type(self.deck))
+        cards = game.game_info.community_cards
+        print('cards', cards)
+        # cards = list(reversed(cards))
+        # print('rev cards', cards)
+        for i in range(len(cards)):
+            if cards[i] in [False, None]:
+                i -= 1
+                continue
+            print(i, cards[i], type(cards[i]), )
+            r, s = list(cards[i])
+            print(r, s)
+            # try:
+            c = Card(rank=int(r), suit=s)
+            # except
 
-        # print(self.reader(self.history))
-        '''
-        ideas: 
-            could rig the deck to the cards that are needed?
-            could try reading line by line
-            use a reader class to collect the information needednot empty, 
-            we read from it instead
-            
-            in game, if action history slot is 
-        
-        '''
+            self.deck = self.deck.place(i, c)
 
+        # where did the game get to?
+        # print(game)
+        # print(game.community_cards)
 
 
 class Game(Bunch):
@@ -855,9 +650,6 @@ class Game(Bunch):
                             'Please seat your players in a dict '
                             'or Players object. ')
 
-        # if not isinstance(self.players, Players):
-        #     raise ValueError(f'Expected a "Players" object but got "{type(self.players)}" ')
-
         self._btn = [v.name for k, v in self.players.items() if k == 'btn'][0]
         self._sb = [v.name for k, v in self.players.items() if k == 'sb'][0]
         self._bb = [v.name for k, v in self.players.items() if k == 'bb'][0]
@@ -867,6 +659,9 @@ class Game(Bunch):
         self._validate_players()
         self.seats = self._fill_seats()
         self._set_game_info_defaults()
+
+        for k, v in self.game_info.items():
+            setattr(self, k, v)
 
     @staticmethod
     def game_info_defaults():
@@ -979,6 +774,94 @@ class Game(Bunch):
         y = Yaml()
         return y.to_yaml(self)
 
+    @staticmethod
+    def from_parser(hand):
+        p = PokerStarsParser(hand)
+        current_player = p.button()
+        current_position = 'btn'
+        pos_dct = {(current_player, current_position): p.player_info()[current_player]}
+        while len(pos_dct) != 9:
+            if current_player == 9:
+                current_player = 1
+            else:
+                current_player += 1
+            current_position = Position(current_position).next_position()
+            try:
+                pos_dct[(current_player, current_position)] = p.player_info()[current_player]
+            except KeyError:
+                pos_dct[(current_player, current_position)] = 'Empty'
+
+        players = Players({})
+        for k, v in pos_dct.items():
+            player_num, pos = k
+            if v == 'Empty':
+                players[pos] = EmptySeat(position=pos)
+            else:
+                player_name, stack = v
+                players[pos] = Player(name=player_name, stack=stack, position=pos)
+        g = Game(players)
+        g.game_info.datetime = p.datetime()
+        g.game_info.game_id = p.game_id()
+        g.game_info.stakes = p.steaks()
+        g.game_info.community_cards = p.flop() + [p.turn()] + [p.river()]
+        g.game_info.action_history['preflop'] = p.preflop_actions()
+        g.game_info.action_history['flop'] = p.flop_actions()
+        g.game_info.action_history['turn'] = p.turn_actions()
+        g.game_info.action_history['river'] = p.river_actions()
+        g.game_info.pot = p.winner()['cash']
+        g.game_info.winner = p.winner()['player']
+        lines = g.extract_lines()
+
+        for pos, pl in g.players.items():
+            if pl.status == 'Empty':
+                continue
+            g.players[pos] = Slave(pl.name, pl.stack,
+                                   line=lines[pos], cards=pl.cards,
+                                   status=pl.status, position=pos)
+
+        return g
+
+    def extract_lines(self):
+        # position dict for looking up position and using as keys
+        positions = self.positions()
+        dct = {}
+        for street, history in self.action_history.items():
+            if isinstance(history, bool):
+                continue
+            for action in history:
+                player = action['player']
+                if player not in dct:
+                    try:
+                        dct[positions[player]] = []
+                    except KeyError:
+                        LOG.warning('player {} not found in positions '
+                                    'dct. Bypassing this player with a continue. '.format(player))
+                        continue
+                dct[positions[player]].append(action)
+        return dct
+
+    def extract_lines_as_string(self):
+        dct = {}
+        for street, history in self.action_history.items():
+            if isinstance(history, bool):
+                continue
+
+            try:
+                dct[player] += street + ','
+            except UnboundLocalError:
+                pass
+
+            for action in history:
+                player = action['player']
+                del action['player']
+                if player not in dct:
+                    dct[player] = ''
+                dct[player] += action['action'] + ','
+        return dct
+
+    def positions(self):
+        return {v.name: k for k, v in self.players.items()}
+
 
 class Yaml:
 
@@ -991,7 +874,9 @@ class Yaml:
                    Bunch, EmptySeat, Hand, HighCard,
                    Pair, TwoPair, ThreeOfAKind,
                    Straight, Flush, FullHouse,
-                   StraightFlush, RoyalFlush]
+                   StraightFlush, RoyalFlush, datetime,
+                   PokerStarsParser, PokerStarsParser.datetime
+                   ]
         for i in classes:
             yaml.register_class(i)
         return yaml
@@ -1031,376 +916,6 @@ class Yaml:
     def from_yaml(self, stream):
         yaml = self._yaml()
         return yaml.load(stream)
-
-
-class Hand:
-    def __init__(self, hole_cards, community_cards):
-        ## sort in decending order
-        self.community_cards = list(reversed(sorted(community_cards)))
-        self.hole_cards = list(reversed(sorted(hole_cards)))
-        self.cards = self.community_cards + self.hole_cards
-        self.cards = list(reversed(sorted(self.cards)))
-
-        ## indicator for whether condition has been met
-        self.isa = False
-
-        if len(self.cards) is not 7:
-            raise ValueError(f"should be 7 cards but got {len(self.cards)}")
-
-        self.five_best = self.get_five_best()
-
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.hole_cards}, {self.community_cards})"
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __eq__(self, other):
-        """Overrides the default implementation"""
-        if isinstance(self, other.__class__):
-            return self.__dict__ == other.__dict__
-        return NotImplemented
-
-    def __ne__(self, other):
-        """Overrides the default implementation (unnecessary in Python 3)"""
-        x = self.__eq__(other)
-        if x is not NotImplemented:
-            return not x
-        return NotImplemented
-
-    def __hash__(self):
-        """Overrides the default implementation"""
-        return hash(tuple(sorted(self.__dict__.items())))
-
-    def __lt__(self, other):
-        if not isinstance(other, Hand):
-            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
-        if self.internal_rank == other.internal_rank:
-            self_sum = sum([i.internal_rank for i in self.five_best])
-            other_sum = sum([i.internal_rank for i in other.five_best])
-            return self_sum < other_sum
-
-        ## otherwise compare the internal ranks
-        else:
-            return self.internal_rank < other.internal_rank
-
-    def __le__(self, other):
-        if not isinstance(other, Hand):
-            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
-        if self.internal_rank == other.internal_rank:
-            self_sum = sum([i.internal_rank for i in self.five_best])
-            other_sum = sum([i.internal_rank for i in other.five_best])
-            return self_sum <= other_sum
-
-        ## otherwise compare the internal ranks
-        else:
-            return self.internal_rank <= other.internal_rank
-
-    def __gt__(self, other):
-        if not isinstance(other, Hand):
-            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
-
-        if self.internal_rank == other.internal_rank:
-            self_sum = sum([i.internal_rank for i in self.five_best])
-            other_sum = sum([i.internal_rank for i in other.five_best])
-            return self_sum > other_sum
-
-        ## otherwise compare the internal ranks
-        else:
-            return self.internal_rank > other.internal_rank
-
-    def __ge__(self, other):
-        if not isinstance(other, Hand):
-            raise TypeError('Cannot make comparison between Hand and "{}"'.format(type(other)))
-
-        if self.internal_rank == other.internal_rank:
-            self_sum = sum([i.internal_rank for i in self.five_best])
-            other_sum = sum([i.internal_rank for i in other.five_best])
-            return self_sum <= other_sum
-
-        ## otherwise compare the internal ranks
-        else:
-            return self.internal_rank <= other.internal_rank
-
-    @staticmethod
-    def hand_rank_order():
-        d = OrderedDict()
-        hand_order = [
-            'HighCard',
-            'Pair',
-            'TwoPair',
-            'ThreeOfAKind',
-            'Straight',
-            'Flush',
-            'FullHouse',
-            'FourOfAKind',
-            'StraightFlush',
-            'RoyalFlush'
-        ]
-        for i in range(len(hand_order)):
-            d[hand_order[i]] = i
-
-        return d
-
-    @property
-    def internal_rank(self):
-        return self.hand_rank_order()[self.__class__.__name__]
-
-    def get_five_best(self):
-        """
-        Get five best cards. Method is designed to be
-        overriden in subclasses.
-        :return:
-        """
-        pass
-
-    def eval(self):
-        """
-        return the maximum hand
-        :return:
-        """
-        isa_list = []
-        for hand in Hand.__subclasses__():
-            hand_type = hand(self.hole_cards, self.community_cards)
-            if hand_type.isa:
-                isa_list.append(hand_type)
-
-        max_isalist = max(isa_list)
-
-        return max_isalist
-
-    def max(self, lst):
-        if not isinstance(lst, list):
-            raise TypeError('lst argument should be list')
-        max = lst[0]
-        for i in lst:
-            if i > max:
-                max = i
-        return max
-
-
-class RoyalFlush(Hand):
-    def get_five_best(self):
-        cards = deepcopy(self.cards)
-        SF = StraightFlush(self.hole_cards, self.community_cards)
-        if SF.isa:
-            ranks = [i.rank for i in SF.five_best]
-            if ranks == ['A', 'K', 'Q', 'J', 10]:
-                self.isa = True
-                return cards
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class StraightFlush(Hand):
-    def get_five_best(self):
-        S = Straight(self.hole_cards, self.community_cards)
-        F = Flush(self.hole_cards, self.community_cards)
-
-        if F.isa and S.isa:
-            self.isa = True
-            assert F.five_best == S.five_best
-            five_best = deepcopy(F.five_best)
-            assert len(five_best) == 5
-            return five_best
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class FourOfAKind(Hand):
-    def get_five_best(self):
-        cards = deepcopy(self.cards)
-
-        ## get most common card
-        most_common = Counter([i.rank for i in cards]).most_common(1)
-
-        if most_common[0][1] is 4:
-            self.isa = True
-            five_best = []
-            for i in most_common:
-                rank = i[0]
-                for card in cards:
-                    if card.rank is rank:
-                        five_best.append(card)
-            remaining = list(set(five_best).symmetric_difference(set(cards)))
-            ## sort remaining
-            remaining = list(reversed(sorted(remaining)))
-            five_best += [remaining[0]]
-
-            assert len(five_best) is 5
-
-            return five_best
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class FullHouse(Hand):
-    def get_five_best(self):
-        cards = deepcopy(self.cards)
-        ## get most common card
-        most_common = Counter([i.rank for i in cards]).most_common(2)
-
-        if most_common[0][1] is 3 and most_common[1][1] is 2:
-            self.isa = True
-            five_best = []
-            for i in most_common:
-                rank = i[0]
-                for card in cards:
-                    if card.rank is rank:
-                        five_best.append(card)
-
-            assert len(five_best) is 5
-
-            return list(reversed(sorted(five_best)))
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class Flush(Hand):
-    def get_five_best(self):
-        cards = deepcopy(self.cards)
-        cards = list(reversed(sorted(cards)))
-        most_common = Counter([i.suit for i in cards]).most_common(1)
-        most_common_count = most_common[0][1]
-        most_common_suit = most_common[0][0]
-        five_best = []
-        if most_common_count >= 5:
-            self.isa = True
-            for card in cards:
-                if card.suit == most_common_suit:
-                    five_best.append(card)
-
-            five_best = five_best[:5]
-            assert len(five_best) is 5
-
-            return list(reversed(sorted(five_best)))
-
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class Straight(Hand):
-    def get_five_best(self):
-        cards = sorted(deepcopy(self.cards))
-        internal_ranks = [i.internal_rank for i in cards]
-        possible_straights = OrderedDict()
-        for i in range(9):
-            possible_straights[i] = list(range(i, i + 5))
-        possible_straights[12] = [12, 0, 1, 2, 3]
-
-        best_five = []
-        for k, v in list(possible_straights.items()):
-            if set(v).issubset(set(internal_ranks)):
-                for card in cards:
-                    for i in v:
-                        if card.internal_rank is i:
-                            best_five.append(card)
-
-        if best_five == []:
-            return HighCard(self.hole_cards, self.community_cards)
-
-        else:
-            self.isa = True
-            best_five = set(best_five)
-            best_five = list(reversed(sorted(best_five)))
-            best_five = best_five[:5]
-            assert len(best_five) == 5
-            return list(reversed(sorted(best_five)))
-
-
-class ThreeOfAKind(Hand):
-    def get_five_best(self):
-        cards = deepcopy(self.cards)
-
-        ## get most common card
-        most_common = Counter([i.rank for i in cards]).most_common(1)
-
-        if most_common[0][1] is 3:
-            self.isa = True
-            five_best = []
-            for i in most_common:
-                rank = i[0]
-                for card in cards:
-                    if card.rank is rank:
-                        five_best.append(card)
-            remaining = list(set(five_best).symmetric_difference(set(cards)))
-            ## sort remaining
-            remaining = list(reversed(sorted(remaining)))
-            five_best += remaining[:2]
-
-            assert len(five_best) is 5
-
-            return five_best
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class TwoPair(Hand):
-    def get_five_best(self):
-        cards = deepcopy(self.cards)
-
-        ## get most common card
-        most_common = Counter([i.rank for i in cards]).most_common(2)
-
-        if most_common[0][1] is 2 and most_common[1][1] is 2:
-            self.isa = True
-            five_best = []
-            for i in most_common:
-                rank = i[0]
-                for card in cards:
-                    if card.rank is rank:
-                        five_best.append(card)
-            remaining = list(set(five_best).symmetric_difference(set(cards)))
-            ## sort remaining
-            remaining = list(reversed(sorted(remaining)))
-            five_best.append(remaining[0])
-
-            assert len(five_best) is 5
-
-            return five_best
-        else:
-            return HighCard(self.hole_cards, self.community_cards)
-
-
-class Pair(Hand):
-    def get_five_best(self):
-        ## make copy so we don't loose original
-        cards = deque(deepcopy(self.cards))
-
-        ## get most common card
-        most_common = Counter([i.rank for i in cards]).most_common(1)
-        most_common_rank = most_common[0][0]
-        most_common_count = most_common[0][1]
-
-        five_best = []
-
-        if most_common_count is 2:
-            self.isa = True
-            for i in range(len(cards)):
-                if cards[i].rank is most_common_rank:
-                    ## add the pair to 5 best
-                    five_best.append(cards[i])
-
-            ## remove the two cards from cards
-            remaining = list(set(five_best).symmetric_difference(set(cards)))
-            remaining = list(reversed(sorted(remaining)))
-
-            ## since superclass already sorts the cards
-            ## we now just take the top 3 to complete the 5 best
-            five_best += remaining[:3]
-
-            assert len(five_best) is 5
-
-            return five_best
-
-        else:
-            return HighCard(self.hole_cards, self.community_cards).five_best
-
-
-class HighCard(Hand):
-    def get_five_best(self):
-        self.isa = True
-        return self.cards[:5]
 
 
 class Position:
