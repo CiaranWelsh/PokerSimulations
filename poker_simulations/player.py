@@ -1,7 +1,7 @@
 import logging
 from copy import deepcopy
 
-from poker_simulations.engine import POSITIONS_INVERTED, POSITIONS, Position
+from .constants import POSITIONS, POSITIONS_INVERTED
 
 
 class Player:
@@ -287,3 +287,40 @@ class Players:
             p[pos] = Player(name='{}{}'.format(base_name, i),
                             stack=stack, status=status, position=pos)
         return p
+
+
+class Position:
+    positions = ['btn', 'sb', 'bb',
+                 'utg1', 'utg2', 'mp1',
+                 'mp2', 'mp3', 'co']
+
+    def __init__(self, position='btn'):
+        self.position = position
+
+    def next_position(self):
+        if self.position == 'btn':
+            return 'sb'
+        elif self.position == 'sb':
+            return 'bb'
+        elif self.position == 'bb':
+            return 'utg1'
+        elif self.position == 'utg1':
+            return 'utg2'
+        elif self.position == 'utg2':
+            return 'mp1'
+        elif self.position == 'mp1':
+            return 'mp2'
+        elif self.position == 'mp2':
+            return 'mp3'
+        elif self.position == 'mp3':
+            return 'co'
+        elif self.position == 'co':
+            return 'btn'
+
+    def __str__(self):
+        return self.position
+
+    def __repr__(self):
+        return self.__str__()
+
+    # def get_position(self):

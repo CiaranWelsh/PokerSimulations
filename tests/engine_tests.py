@@ -1,4 +1,6 @@
 import unittest
+
+from poker_simulations.constants import POSITIONS
 from poker_simulations.engine import *
 
 from poker_simulations.player import Player, EmptySeat, Slave, Players
@@ -150,9 +152,6 @@ class SlaveTests(unittest.TestCase):
         ##actions, not just the one i'm following.
 
     def test__(self):
-        ##todo what about subclassing table and literally rigging the deck
-
-        # todo extract lines must be changed so keys are position
         eh = ExampleHands().hand5_game_end_at_showdown()
         game = Game.from_parser(eh)
 
@@ -160,7 +159,6 @@ class SlaveTests(unittest.TestCase):
         # for pos, pl in game.players.items():
         #     print(pos, pl)
         print(t.play_game())
-        # todo change extract i
         # p = Players()
         # print(game.players)
         # for pos, line in game.extract_lines().items():
@@ -385,11 +383,6 @@ pot: 0"""
         print(lines)
         self.assertEqual(lines['Jamex19'][0]['action'], 'raises')
 
-    def test_positions(self):
-        eh = ExampleHands()
-        g = Game.from_parser(eh.hand5_game_end_at_showdown())
-        self.assertEqual(g.positions()['shelepova'], 'btn')
-
     def test_setattr(self):
         p = self.p
         t = Table(name='super_poker', players=p)
@@ -404,6 +397,22 @@ pot: 0"""
     #     eh = ExampleHands()
     #     g = Game.from_parser(eh.hand5_game_end_at_showdown())
     #     self.assertEqual('calls', g.players['utg1'].mind_control[2]['action'])
+
+class FromParserTests(unittest.TestCase):
+
+    def setUp(self):
+        self.eh = ExampleHands()
+
+
+    def test_positions(self):
+        g = Game.from_parser(self.eh.hand5_game_end_at_showdown())
+        self.assertEqual(g.positions()['shelepova'], 'btn')
+
+    def test(self):
+        # g = Game.from_parser(self.eh.hand5_game_end_at_showdown())
+        g = Game.from_parser(self.eh.hand4_game_end_at_turn())
+
+
 
 
 class ParsePokerstarsTests(unittest.TestCase):
@@ -511,15 +520,6 @@ class TableTests(unittest.TestCase):
         self.assertNotEqual([], game.game_info.action_history['river'])
 
     def test_Winner(self):
-        ## the way Im updating the history needs to change
-        ## currently I append each action to the list for a steet
-        ## but this
-        ##todo implement another set of options for the bb as they can only checka dn raise
-
-        ## when calling a raise, we need to modify the existing money
-
-        ## get players that are still in the game and test to see whether the amount hte
-        ## have put into the pot is the same. If not we continue
         t = Table(name='super_poker', players=self.p)
         game = t.play_game(to='river')
         winner = t.get_winner(t.game)
@@ -556,7 +556,6 @@ class RiggedTableTests(unittest.TestCase):
         eh = ExampleHands().hand5_game_end_at_showdown()
         game = Game.from_parser(eh)
         rt = RiggedTable(game)
-        ex = ['5S', '4D', '2H', '4S']
         self.assertEqual(52, len(rt.deck))
 
 

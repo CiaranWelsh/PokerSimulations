@@ -415,72 +415,86 @@ class PokerStarsParserTestsHand5(PokerStarsParserTestsHand4):
 class PokerStarsParserTests(unittest.TestCase):
 
     def setUp(self):
-        self.hands = ExampleHands()
+        self.hand5 = ExampleHands().hand5_game_end_at_showdown()
+        self.hand4 = ExampleHands().hand4_game_end_at_turn()
 
-    def test1(self):
-        p = PokerStarsParser(self.hands.hand5_game_end_at_showdown())
-        print(p.parse_hand())
+    # def test1(self):
+    #     p = PokerStarsParser(self.hand4)
+    #     print(p.parse_hand())
 
     def test_game_id(self):
-        h = PokerStarsParser(self.hand)
-        self.assertEqual(197832949072, h.game_id())
+        h = PokerStarsParser(self.hand5)
+        self.assertEqual(197820819683, h.game_id())
 
     def test_vendor(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual('PokerStars', h.vendor())
 
     def test_steaks(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual((0.1, 0.25), h.steaks())
 
     def test_btn(self):
-        h = PokerStarsParser(self.hand)
-        self.assertEqual(7, h.button())
+        h = PokerStarsParser(self.hand4)
+        self.assertEqual(1, h.button())
 
     def test_num_players(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual(9, h.number_of_players())
 
     def test_player_info(self):
-        h = PokerStarsParser(self.hand)
-        self.assertEqual('XOKCABAP3', h.player_info()[9][0])
+        h = PokerStarsParser(self.hand4)
+        print('ghftrxtj', h.player_info())
+        # self.assertEqual('XOKCABAP3', h.player_info()[9][0])
+
+    def test_blind_info(self):
+        h = PokerStarsParser(self.hand4)
+        b = h.blind_info()
+        self.assertEqual('Jamex19', b['bb']['player'])
+
+    def test_sitting_out(self):
+        h = PokerStarsParser(self.hand4)
+        sitting_out = h.sitting_out()
+        exp = 'pocketsplant'
+        self.assertEqual(exp, sitting_out[0])
 
     def test_preflop_actions(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual(0.75,
                          h.preflop_actions()['kirillr80'][2])
 
     def test_flop_actions(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         print(h.flop_actions())
         # self.assertEqual('checks', h.flop_actions()['Kobe24LSB'][0])
 
     def test_turn_actions(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual('checks', h.turn_actions()['lilysami'][0])
 
     def test_river_actions(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual(0.06, h.river_actions()['Kobe24LSB'][1])
 
     def test_showdown_actions(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         h.river_actions()
         self.assertEqual('checks', h.turn_actions()['lilysami'][0])
 
     def test_flop(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual('Qc', h.flop()[2])
 
     def test_turn(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual('92', h.turn())
 
     def test_river(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual('Kd', h.river())
 
     def test_winner(self):
-        h = PokerStarsParser(self.hand)
+        h = PokerStarsParser(self.hand4)
         self.assertEqual(0.15, h.winner()['cash'])
 
+#todo implement session class

@@ -96,7 +96,8 @@ class PokerStarsParser:
 
     def player_info(self):
         info = re.findall(self._re_head_data, self.hand)[0]
-        info = info.split('\n')[1:-3]  # remove first and last few lines
+        info = re.findall(r'[\s\S]*posts small blind', info)[0]
+        info = info.split('\n')[1:-1]  # remove first and last few lines
         dct = OrderedDict()
         for i in info:
             seat, player, cash = re.findall(self._re_player_info, i)[0]
@@ -105,7 +106,39 @@ class PokerStarsParser:
             dct[seat] = (player, cash)
         return dct
 
+    def blind_info(self):
+        info = re.findall(self._re_head_data, self.hand)[0]
+        info = re.findall('(.*posts[\s\S]*)\*\*\* HOLE CARDS \*\*\*', info)[0]
+        sb = None
+        bb = None
+        for i in info.split('\n'):
+            if 'small blind' in i:
+                sb = re.findall('(.*): posts small blind \$(.d*.\d*)', i)[0]
+            if 'big blind' in i:
+                bb = re.findall('(.*): posts big blind \$(.d*.\d*)', i)[0]
+        assert sb is not None
+        assert bb is not None
+        return {
+            'sb': {'player': sb[0], 'sb': float(sb[1])},
+            'bb': {'player': bb[0], 'bb': float(bb[1])},
+                }
+
+    def sitting_out(self):
+        info = re.findall(self._re_head_data, self.hand)[0]
+        info = re.findall('big blind.*\n([\s\S]*)\*\*\* HOLE CARDS \*\*\*',
+                          info)[0]
+        info = info.strip().split('\n')
+        lst = []
+        for i in info:
+            res = re.findall('(\w*).*(sits out)', i)
+            lst += res
+        return lst
+
+    def extract_known_hole_cards(self):
+        pass
+
     def _get_actions(self, regex):
+        #todo deal with the case that all have folded to one player and we get an Uncalled bet action
         """
         method for retrieving a set of actions
         :param regex:
@@ -119,6 +152,7 @@ class PokerStarsParser:
         l = []
         for action in actions:
             player = re.findall('(\w*).', action)[0].strip()
+            print(action)
             act = re.findall('(calls)|(disconnected)|(timed out)|'
                              '(raises)|(checks)|(folds)|(bets)', action)
             act = [i for i in act[0] if i != ''][0]

@@ -1,41 +1,46 @@
 from collections import OrderedDict, deque
 from random import shuffle
 from copy import deepcopy
+import numpy as np
 
 from poker_simulations.eval import Hand, RoyalFlush, StraightFlush, FullHouse, Flush, Straight, ThreeOfAKind, TwoPair, \
     Pair, HighCard
-from poker_simulations.player import Player, EmptySeat, Slave, Players
-from .bunch import Bunch
+from poker_simulations.player import Player, EmptySeat, Slave, Players, Position
 from ruamel.yaml import YAML as ryaml
 import sys
 from io import StringIO
 from contextlib import redirect_stdout
 from datetime import datetime
-from .io import PokerStarsParser
 
 from twiggy import quick_setup as QUICK_SETUP
 from twiggy import log as LOG
-from .io import PokerStarsReader, PokerStarsWriter
+from .io import PokerStarsParser, PokerStarsWriter
+from .bunch import Bunch
 
+import gym
+
+
+
+"""
+Some notes
+==========
+- Inherit from gym.Env. 
+- Action space = ['check', 'fold', 'call', 'raise']
+    - Can't just use spaces.Discrete for this because if you choose to raise, then we need another real valued number. 
+    - Use spaces.Dict with Discrete for the action and 1d box for amount. 
+- The Game class should be modified. 
+    - 
+
+"""
+
+
+
+
+
+
+
+# setup a twiggy log
 QUICK_SETUP()
-
-POSITIONS = {
-    0: 'btn',
-    1: 'sb',
-    2: 'bb',
-    3: 'utg1',
-    4: 'utg2',
-    5: 'mp1',
-    6: 'mp2',
-    7: 'mp3',
-    8: 'co',
-}
-
-POSITIONS_INVERTED = {v: k for k, v in POSITIONS.items()}
-
-BETTING_ORDER = ['sb', 'bb', 'utg1', 'utg2',
-                 'mp1', 'mp2', 'mp3', 'co',
-                 'btn']
 
 
 ## todo build a server and host the game, enabling human players to join
@@ -205,7 +210,7 @@ class Table:
     """
 
     def __init__(self, players, game=None, stakes=(0.05, 0.10),
-                 name='tumbleweed', script=None, reader=PokerStarsReader,
+                 name='tumbleweed', script=None, reader=PokerStarsParser,
                  writer=PokerStarsWriter, **kwargs):
         self.name = name
         self.players = players
@@ -776,7 +781,11 @@ class Game(Bunch):
 
     @staticmethod
     def from_parser(hand):
+        #todo ensure hole cards are filled in parser
+        #todo ensure players who are sitting out are sitting out.
+
         p = PokerStarsParser(hand)
+
         current_player = p.button()
         current_position = 'btn'
         pos_dct = {(current_player, current_position): p.player_info()[current_player]}
@@ -799,6 +808,9 @@ class Game(Bunch):
             else:
                 player_name, stack = v
                 players[pos] = Player(name=player_name, stack=stack, position=pos)
+            if player_name in p.sitting_out():
+                players[pos].status = 'sitting-out'
+
         g = Game(players)
         g.game_info.datetime = p.datetime()
         g.game_info.game_id = p.game_id()
@@ -918,38 +930,68 @@ class Yaml:
         return yaml.load(stream)
 
 
-class Position:
-    positions = ['btn', 'sb', 'bb',
-                 'utg1', 'utg2', 'mp1',
-                 'mp2', 'mp3', 'co']
 
-    def __init__(self, position='btn'):
-        self.position = position
 
-    def next_position(self):
-        if self.position == 'btn':
-            return 'sb'
-        elif self.position == 'sb':
-            return 'bb'
-        elif self.position == 'bb':
-            return 'utg1'
-        elif self.position == 'utg1':
-            return 'utg2'
-        elif self.position == 'utg2':
-            return 'mp1'
-        elif self.position == 'mp1':
-            return 'mp2'
-        elif self.position == 'mp2':
-            return 'mp3'
-        elif self.position == 'mp3':
-            return 'co'
-        elif self.position == 'co':
-            return 'btn'
+class PokerGym(gym.Env):
 
-    def __str__(self):
-        return self.position
+    action_space = gym.spaces.Dict({
+        'actions': gym.spaces.Discrete(4),
+        'amount': gym.spaces.Box(0, 1e99, shape=(1,), dtype=np.float32)
+    })
 
-    def __repr__(self):
-        return self.__str__()
+    # 0, 1, 2, 3 maps to check fold call and raise
+    observation_space = gym.spaces.Dict({
+        'street': gym.spaces.Discrete(5),
+        'players': gym.spaces.Dict({
+            'current': gym.spaces.Discrete(9),
+            'identity': gym.spaces.Discrete(9)
+        }),
+        'community_cards': gym.spaces.MultiDiscrete([52]*5),
+        'pot': gym.spaces.Box(0, 1e99, shape=(1,)),
+        'history': gym.spaces.Dict({
 
-    # def get_position(self):
+        }),
+        'stats': gym.spaces.Dict({
+
+        })
+    })
+    deck = Deck().shuffle()
+
+    def __init__(self, players):
+        self.players = players
+
+    def _step(self):
+        """
+        Simulates one complete hand of texas holdem poker
+        Returns:
+
+        """
+
+    def _reset(self):
+        pass
+
+#
+# 'currency': '$',
+# 'datetime': datetime.now(),
+# 'game_id': 1,
+# 'check_available': True,  ## determines which action set a player is presented with
+# 'betting_equal': False,  ## Criteria for ending a round of betting
+# 'stakes': [0.10, 0.25],
+# 'vendor': 'PokerStars',
+# 'current_street': 'preflop',
+# 'current_position': 'utg1',
+# 'community_cards': [],
+# 'pot': 0,
+# 'call_amount': None,
+# 'action_history': dict(
+#     preflop=[],
+#     flop=[],
+#     turn=[],
+#     river=[],
+#     showdown=[],
+# ),
+
+
+
+
+
