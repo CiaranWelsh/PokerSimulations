@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from collections import OrderedDict
 
-from . import file_manager
+from poker_simulations import file_manager
 
 FILE_MANAGER = file_manager.FileManager()
 

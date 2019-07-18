@@ -1,6 +1,5 @@
 import unittest
-from poker_simulations import engine, db
-from poker_simulations.db import *
+from old_modules.db import *
 from poker_simulations.file_manager import FileManager
 
 FILE_MANAGER = FileManager()
